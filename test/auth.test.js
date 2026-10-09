@@ -3,7 +3,7 @@ const auth = require('../lambda/dashboard/auth');
 
 const TENANT = '11111111-2222-3333-4444-555555555555';
 const CLIENT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const config = { tenantId: TENANT, clientId: CLIENT, clientSecret: 'secret-value', allowedUsers: ['user@example.com'] };
+const config = { tenantId: TENANT, clientId: CLIENT, clientSecret: 'secret-value', allowedDomain: 'example.com' };
 const SITE = 'https://traffic.dliu.com';
 const NOW = Date.UTC(2026, 9, 9, 12, 0, 0);
 
@@ -117,14 +117,12 @@ describe('login flow', () => {
     const session = cookieValue(result.cookies, auth.SESSION_COOKIE);
     const event = { cookies: [`${auth.SESSION_COOKIE}=${session}`] };
     expect(auth.getSession(event, config, NOW).user).toBe('user@example.com');
-    expect(auth.getSession(event, { ...config, allowedUsers: ['object-id-1'] }, NOW).user).toBe('user@example.com');
-    expect(auth.getSession(event, { ...config, allowedUsers: ['someone@example.com'] }, NOW)).toBeNull();
     expect(result.cookies.find((c) => c.startsWith(auth.SESSION_COOKIE))).toMatch(/HttpOnly; SameSite=Lax/);
   });
 
-  test('finishLogin rejects users not on the allowlist', async () => {
+  test('finishLogin rejects users from another domain', async () => {
     const { transient, payload } = beginLogin();
-    const fetchImpl = fakeFetch(() => idToken(claimsFor(payload.nonce, { preferred_username: 'other@example.com', oid: 'x' })));
+    const fetchImpl = fakeFetch(() => idToken(claimsFor(payload.nonce, { preferred_username: 'other@example.org', oid: 'x' })));
     const result = await auth.finishLogin({
       queryStringParameters: { code: 'c', state: payload.state },
       cookies: [`${auth.AUTH_COOKIE}=${transient}`],
@@ -179,10 +177,13 @@ describe('id_token validation', () => {
   });
 });
 
-describe('allowlist', () => {
-  test('matches email case-insensitively or object id', () => {
+describe('domain check', () => {
+  test('allows any account in the domain, case-insensitively', () => {
     expect(auth.isAllowed({ preferred_username: 'User@EXAMPLE.com' }, config)).toBe(true);
-    expect(auth.isAllowed({ oid: 'abc' }, { allowedUsers: ['abc'] })).toBe(true);
-    expect(auth.isAllowed({ preferred_username: 'other@example.com' }, config)).toBe(false);
+    expect(auth.isAllowed({ email: 'someone@example.com' }, config)).toBe(true);
+    expect(auth.isAllowed({ preferred_username: 'other@example.org' }, config)).toBe(false);
+    expect(auth.isAllowed({ preferred_username: 'evil@notexample.com' }, config)).toBe(false);
+    expect(auth.isAllowed({ preferred_username: 'x@example.com.evil.org' }, config)).toBe(false);
+    expect(auth.isAllowed({ oid: 'abc' }, config)).toBe(false);
   });
 });

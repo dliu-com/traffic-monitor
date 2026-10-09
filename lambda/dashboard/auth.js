@@ -63,10 +63,7 @@ function authority(config) {
 }
 
 function getSession(event, config, now = Date.now()) {
-  const session = verifySigned(parseCookies(event)[SESSION_COOKIE], sessionKey(config), now);
-  // Re-check the allowlist so removing a user revokes existing sessions.
-  if (!session || !isAllowed({ preferred_username: session.user, oid: session.oid }, config)) return null;
-  return session;
+  return verifySigned(parseCookies(event)[SESSION_COOKIE], sessionKey(config), now);
 }
 
 function startLogin(config, siteUrl, now = Date.now()) {
@@ -130,11 +127,12 @@ async function verifyIdToken(idToken, config, expectedNonce, { fetchImpl = fetch
   return claims;
 }
 
+// Microsoft decides who may sign in (Entra user assignment); the dashboard only checks the email domain.
 function isAllowed(claims, config) {
-  const ids = [claims.preferred_username, claims.email, claims.upn, claims.oid]
+  const suffix = `@${config.allowedDomain}`;
+  return [claims.preferred_username, claims.email, claims.upn]
     .filter(Boolean)
-    .map((value) => String(value).toLowerCase());
-  return ids.some((id) => config.allowedUsers.includes(id));
+    .some((value) => String(value).toLowerCase().endsWith(suffix));
 }
 
 async function finishLogin(event, config, siteUrl, { fetchImpl = fetch, now = Date.now() } = {}) {
@@ -168,7 +166,7 @@ async function finishLogin(event, config, siteUrl, { fetchImpl = fetch, now = Da
 
   const claims = await verifyIdToken(tokens.id_token, config, transient.nonce, { fetchImpl, now });
   if (!isAllowed(claims, config)) {
-    console.warn(JSON.stringify({ message: 'User not allowed', user: claims.preferred_username, oid: claims.oid }));
+    console.warn(JSON.stringify({ message: 'User domain not allowed', user: claims.preferred_username, oid: claims.oid }));
     return { error: `${claims.preferred_username || 'This account'} is not allowed to view this dashboard.`, status: 403, cookies: [clearAuth] };
   }
 

@@ -38,13 +38,11 @@ echo "Press Enter to keep the value shown in brackets."
 prompt TENANT_ID "Directory (tenant) ID" "$(current entra-tenant-id)"
 prompt CLIENT_ID "Application (client) ID" "$(current entra-client-id)"
 read -r -s -p "Client secret VALUE (hidden; Enter to keep current): " CLIENT_SECRET; echo
-prompt ALLOWED "Allowed users (comma-separated emails or object IDs)" "$(current allowed-users || true)"
 
-[[ -n "$TENANT_ID" && -n "$CLIENT_ID" && -n "$ALLOWED" ]] || { echo "Tenant ID, client ID and allowed users are required." >&2; exit 1; }
+[[ -n "$TENANT_ID" && -n "$CLIENT_ID" ]] || { echo "Tenant ID and client ID are required." >&2; exit 1; }
 
 put entra-tenant-id String "$TENANT_ID"
 put entra-client-id String "$CLIENT_ID"
-put allowed-users String "$ALLOWED"
 if [[ -n "$CLIENT_SECRET" ]]; then
   put entra-client-secret SecureString "$CLIENT_SECRET"
 elif [[ -z "$(aws ssm get-parameter --region "$REGION" --name "$PREFIX/entra-client-secret" --query Parameter.Name --output text 2>/dev/null || true)" ]]; then

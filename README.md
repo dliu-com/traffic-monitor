@@ -33,14 +33,14 @@ Microsoft 365 Business Basic (Entra ID Free) is sufficient. Using an admin accou
 2. Copy **Application (client) ID** and **Directory (tenant) ID** from *Overview*.
 3. **Certificates & secrets → New client secret** — copy the secret **Value** (shown once).
 4. **API permissions**: default `User.Read` → *Grant admin consent*.
-5. Optional: **Enterprise applications → Traffic Monitor** → *Assignment required = Yes*, assign the allowed users. Note that Entra skips this check for Global Administrators, so the dashboard allowlist below is the real gate.
+5. **Enterprise applications → Traffic Monitor** → *Assignment required = Yes*, and assign the users who may sign in. Microsoft decides who gets in; note that Entra skips this check for Global Administrators.
 6. Store the settings (prompted interactively, saved to SSM Parameter Store under `/traffic-monitor/`):
 
    ```bash
    make set-secrets
    ```
 
-No secrets live in this repository. The allowlist (`allowed-users`, comma-separated emails or object IDs) is enforced by the dashboard at sign-in and on every API call, so removing a user revokes existing sessions within a few minutes.
+No secrets live in this repository. Besides verifying the Microsoft ID token (signature, tenant, audience, nonce, expiry), the dashboard only checks that the account's email is in the site's domain (`@dliu.com`, from the `MainDomain` export).
 Renew the client secret before it expires and re-run `make set-secrets`.
 
 ## Adding a site

@@ -57,7 +57,7 @@ describe('sql', () => {
 });
 
 describe('handler', () => {
-  const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedUsers: ['user@example.com'] };
+  const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
   const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
   const queries = [];
   const handler = createHandler({

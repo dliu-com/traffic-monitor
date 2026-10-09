@@ -1,7 +1,7 @@
 'use strict';
 
 const PREFIX = process.env.PARAMETER_PREFIX || '/traffic-monitor';
-const NAMES = ['entra-tenant-id', 'entra-client-id', 'entra-client-secret', 'allowed-users'];
+const NAMES = ['entra-tenant-id', 'entra-client-id', 'entra-client-secret'];
 const TTL_MS = 5 * 60 * 1000;
 
 let cached;
@@ -14,13 +14,6 @@ function client() {
     ssmClient = new SSMClient({});
   }
   return ssmClient;
-}
-
-function parseAllowed(value) {
-  return String(value || '')
-    .split(/[\s,]+/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 class NotConfigured extends Error {}
@@ -41,7 +34,7 @@ async function loadConfig(ssm = client(), now = Date.now()) {
     tenantId: values['entra-tenant-id'].trim(),
     clientId: values['entra-client-id'].trim(),
     clientSecret: values['entra-client-secret'],
-    allowedUsers: parseAllowed(values['allowed-users']),
+    allowedDomain: (process.env.ALLOWED_DOMAIN || process.env.ROOT_DOMAIN || 'dliu.com').trim().toLowerCase(),
   };
   cachedAt = now;
   return cached;
@@ -52,4 +45,4 @@ function resetConfigCache() {
   cachedAt = 0;
 }
 
-module.exports = { loadConfig, parseAllowed, resetConfigCache, NotConfigured };
+module.exports = { loadConfig, resetConfigCache, NotConfigured };
