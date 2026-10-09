@@ -7,6 +7,7 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   `dl_vid` cookie on `.dliu.com`, so the same visitor is recognised across all subdomains.
 - **Query** – a partitioner Lambda moves logs into `logs/site=<site>/dt=<date>/`; Glue + Athena (partition projection) query them.
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
+- **About** – `https://traffic.dliu.com/about.html`, public diagrams of the architecture and sign-in flow.
 
 ```
 site CloudFront ──logs──▶ S3 raw/<site>/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
