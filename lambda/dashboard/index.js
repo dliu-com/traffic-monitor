@@ -1,7 +1,7 @@
 'use strict';
 
 const auth = require('./auth');
-const { loadConfig } = require('./config');
+const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
 const { BadRequest, overviewQueries, parseFilters, requestsQuery, settings } = require('./queries');
 
@@ -82,6 +82,11 @@ function createHandler(deps = {}) {
       return json(404, { error: 'Not found' });
     } catch (error) {
       if (error instanceof BadRequest) return json(400, { error: error.message });
+      if (error instanceof NotConfigured) {
+        console.error(JSON.stringify({ message: 'Dashboard not configured', path, error: error.message }));
+        const text = 'Sign-in is not configured yet. Run "make set-secrets".';
+        return path.startsWith('/auth/') ? errorPage(503, text) : json(503, { error: text });
+      }
       console.error(JSON.stringify({ message: 'Request failed', path, error: error.message, stack: error.stack }));
       if (path.startsWith('/auth/')) return errorPage(500, 'Something went wrong while signing in.');
       return json(500, { error: 'Internal error' });

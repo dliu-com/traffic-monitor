@@ -23,6 +23,8 @@ function parseAllowed(value) {
     .filter(Boolean);
 }
 
+class NotConfigured extends Error {}
+
 async function loadConfig(ssm = client(), now = Date.now()) {
   if (cached && now - cachedAt < TTL_MS) return cached;
   const { GetParametersCommand } = require('@aws-sdk/client-ssm');
@@ -33,7 +35,7 @@ async function loadConfig(ssm = client(), now = Date.now()) {
   const values = Object.fromEntries((result.Parameters || []).map((p) => [p.Name.slice(PREFIX.length + 1), p.Value]));
   const missing = NAMES.filter((name) => !values[name]);
   if (missing.length) {
-    throw new Error(`Missing SSM parameters under ${PREFIX}: ${missing.join(', ')}. Run "make set-secrets".`);
+    throw new NotConfigured(`Missing SSM parameters under ${PREFIX}: ${missing.join(', ')}. Run "make set-secrets".`);
   }
   cached = {
     tenantId: values['entra-tenant-id'].trim(),
@@ -50,4 +52,4 @@ function resetConfigCache() {
   cachedAt = 0;
 }
 
-module.exports = { loadConfig, parseAllowed, resetConfigCache };
+module.exports = { loadConfig, parseAllowed, resetConfigCache, NotConfigured };

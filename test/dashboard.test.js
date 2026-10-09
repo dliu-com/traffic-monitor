@@ -72,6 +72,16 @@ describe('handler', () => {
     Object.assign(process.env, env, { SITE_URL: 'https://traffic.dliu.com' });
   });
 
+  test('missing sign-in settings return 503, not 500', async () => {
+    const { NotConfigured } = require('../lambda/dashboard/config');
+    const unconfigured = createHandler({ loadConfig: async () => { throw new NotConfigured('missing'); }, now: () => NOW });
+    const call = (path) => unconfigured({ rawPath: path, requestContext: { http: { method: 'GET' } } });
+    const api = await call('/api/me');
+    expect(api.statusCode).toBe(503);
+    expect(JSON.parse(api.body).error).toMatch(/make set-secrets/);
+    expect((await call('/auth/login')).statusCode).toBe(503);
+  });
+
   test('api requires a session', async () => {
     expect((await request('/api/overview')).statusCode).toBe(401);
     expect((await request('/api/me', { cookies: [`${auth.SESSION_COOKIE}=forged.value`] })).statusCode).toBe(401);
