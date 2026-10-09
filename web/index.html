@@ -33,10 +33,14 @@
   </header>
 
   <main>
-    <section id="signin" hidden class="center">
-      <p>This dashboard is private.</p>
-      <a class="button" href="/auth/login">Sign in with Microsoft</a>
-      <p><a href="/about.html">How it works</a></p>
+    <section id="signin" hidden class="signin">
+      <h2>Traffic across the dliu.com sites</h2>
+      <p>This dashboard is private. Sign in with your dliu.com Microsoft account to view it.</p>
+      <a class="ms-signin" href="/auth/login">
+        <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        <span>Sign in with Microsoft</span>
+      </a>
+      <a class="about-button" href="/about.html">How it works — view the About page →</a>
     </section>
 
     <p id="status" role="status"></p>

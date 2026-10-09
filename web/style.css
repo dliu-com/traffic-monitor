@@ -33,6 +33,20 @@ button, .button { cursor: pointer; }
 a { color: var(--accent); }
 main { padding: 1.25rem 1.5rem; max-width: 1400px; margin: 0 auto; }
 .center { text-align: center; margin-top: 4rem; }
+.signin { display: flex; flex-direction: column; align-items: center; gap: 1rem; max-width: 420px; margin: 4rem auto; padding: 2rem; text-align: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+[hidden] { display: none !important; }
+.signin h2 { font-size: 1.2rem; margin: 0; }
+.signin p { margin: 0; color: var(--muted); }
+/* Microsoft identity platform branding: https://learn.microsoft.com/entra/identity-platform/howto-add-branding-in-apps */
+.ms-signin { display: inline-flex; align-items: center; gap: 12px; height: 41px; padding: 0 12px; background: #fff; border: 1px solid #8c8c8c; color: #5e5e5e; font: 600 15px "Segoe UI", system-ui, sans-serif; text-decoration: none; }
+.ms-signin svg { flex: none; }
+.ms-signin:hover { background: #f3f3f3; }
+.about-button { display: block; width: 100%; padding: .7rem 1rem; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; text-decoration: none; }
+.about-button:hover { filter: brightness(1.08); }
+@media (prefers-color-scheme: dark) {
+  .ms-signin { background: #2f2f2f; border-color: #2f2f2f; color: #fff; }
+  .ms-signin:hover { background: #3b3b3b; }
+}
 #status { color: var(--muted); min-height: 1.2em; margin: 0 0 .75rem; }
 #status.error { color: #dc2626; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin-bottom: .75rem; }
