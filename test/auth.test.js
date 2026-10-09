@@ -117,6 +117,8 @@ describe('login flow', () => {
     const session = cookieValue(result.cookies, auth.SESSION_COOKIE);
     const event = { cookies: [`${auth.SESSION_COOKIE}=${session}`] };
     expect(auth.getSession(event, config, NOW).user).toBe('user@example.com');
+    expect(auth.getSession(event, { ...config, allowedUsers: ['object-id-1'] }, NOW).user).toBe('user@example.com');
+    expect(auth.getSession(event, { ...config, allowedUsers: ['someone@example.com'] }, NOW)).toBeNull();
     expect(result.cookies.find((c) => c.startsWith(auth.SESSION_COOKIE))).toMatch(/HttpOnly; SameSite=Lax/);
   });
 

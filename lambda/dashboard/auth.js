@@ -63,7 +63,10 @@ function authority(config) {
 }
 
 function getSession(event, config, now = Date.now()) {
-  return verifySigned(parseCookies(event)[SESSION_COOKIE], sessionKey(config), now);
+  const session = verifySigned(parseCookies(event)[SESSION_COOKIE], sessionKey(config), now);
+  // Re-check the allowlist so removing a user revokes existing sessions.
+  if (!session || !isAllowed({ preferred_username: session.user, oid: session.oid }, config)) return null;
+  return session;
 }
 
 function startLogin(config, siteUrl, now = Date.now()) {
