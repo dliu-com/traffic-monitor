@@ -10,7 +10,9 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - `/` **All sites** – totals, visits over time, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, top pages, referrers, IP addresses and request log.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites, plus other IPs that sent the same `dl_vid` cookie.
-  - The period (24h, 7d, 30d, 90d, 1y or custom UTC dates) is kept in the URL, so links can be shared and reloaded.
+  - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
+  - Every widget loads on its own (`/api/overview` and `/api/ip` take `part=`), with a spinner until its data arrives.
+  - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
 - **About** – `https://traffic.dliu.com/about`, public diagrams of the architecture, sign-in flow, cost and security.
 - **Security** – `https://traffic.dliu.com/security`, the threat model, live penetration-test results and accepted risks.
 

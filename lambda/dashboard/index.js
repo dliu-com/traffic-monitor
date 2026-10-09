@@ -3,7 +3,7 @@
 const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
-const { BadRequest, ipQueries, overviewQueries, parseFilters, requestsQuery, settings } = require('./queries');
+const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, parseFilters, settings } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -69,14 +69,21 @@ function createHandler(deps = {}) {
       if (path === '/api/overview' || path === '/api/ip') {
         const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip) : overviewQueries(filters);
+        // part=<name> runs one query, so each dashboard widget can load and appear on its own.
+        if (params.part !== undefined) {
+          if (!Object.hasOwn(queries, params.part)) throw new BadRequest('Unknown part');
+          return json(200, { filters, rows: await query(queries[params.part]) });
+        }
         const names = Object.keys(queries);
         const results = await Promise.all(names.map((name) => query(queries[name])));
         return json(200, { filters, ...Object.fromEntries(names.map((name, i) => [name, results[i]])) });
       }
-      if (path === '/api/requests') {
+      if (path === '/api/list') {
         const filters = parseFilters(params, clock());
-        const rows = await query(requestsQuery(filters, params), { maxRows: 1000 });
-        return json(200, { filters, requests: rows });
+        const { sql, limit, offset } = listQuery(filters, params);
+        const rows = await query(sql, { maxRows: PAGE_MAX });
+        const total = rows.length ? Number(rows[0].total) : 0;
+        return json(200, { filters, offset, limit, total, rows: rows.map(({ total: _, ...row }) => row) });
       }
       return json(404, { error: 'Not found' });
     } catch (error) {

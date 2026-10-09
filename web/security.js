@@ -35,7 +35,7 @@ root.append(tiers({
       label: 'Dashboard Lambda', badge: 'API', tone: 'app', link: 'signed by CloudFront (IAM)',
       nodes: [
         { icon: 'lock', title: 'Session check', text: 'Every /api call needs a valid signed session cookie' },
-        { icon: 'filter', title: 'Input allowlists', text: 'Sites, ranges, dates, visitor IDs and IPs are validated before any SQL is built' },
+        { icon: 'filter', title: 'Input allowlists', text: 'Sites, ranges, dates, times, visitor IDs, IPs and search text are validated before any SQL is built' },
       ],
     },
     {
@@ -54,7 +54,7 @@ add('h2', 'Public limits');
 root.append(stats([
   ['1 GB', 'maximum data scanned per query', 'budget'],
   ['366 days', 'longest custom date range', 'clock'],
-  ['1,000 rows', 'most requests returned per call', 'filter'],
+  ['100 rows', 'most rows returned per call', 'filter'],
   ['12 hours', 'session lifetime', 'lock'],
 ]));
 
@@ -74,9 +74,9 @@ root.append(table(['Test', 'Result', 'Status'], [
   ['Header injection', 'Line breaks in callback parameters cannot add headers or cookies', PASS],
   ['Cross-origin requests', 'No CORS headers are sent, so other sites cannot read the API; preflight returns 403', PASS],
   ['Bypassing CloudFront', 'The Lambda function URL and all three S3 buckets return 403 when called directly', PASS],
-  ['SQL injection', "Quotes, comments and UNION payloads in site, range, from, to, visitor and ip return 400", PASS],
+  ['SQL injection', "Quotes, comments and UNION payloads in site, range, from, to, visitor, ip, list and part return 400. Search text with quotes, semicolons or angle brackets returns 400; other words are only ever matched as plain text", PASS],
   ['Prototype keys', 'range=__proto__ or toString caused a 500 error; they now return 400', FIXED],
-  ['Oversized requests', 'Ranges over 366 days and repeated parameters return 400; limit is clamped to 1–1000', PASS],
+  ['Oversized requests', 'Ranges over 366 days and repeated parameters return 400; limit is clamped to 1–100', PASS],
   ['Stored XSS', 'Script and onerror payloads were sent to dliu.com in the user agent, referrer, path, query and cookie, then viewed in the dashboard. They appear as plain text and nothing runs', PASS],
   ['Malicious visitor cookie', 'A dl_vid containing <script> is replaced with a fresh random ID', PASS],
   ['Error page styling', 'The error page used an inline style that the CSP blocked; it now uses the stylesheet', FIXED],
@@ -88,7 +88,7 @@ add('h2', 'Threat model');
 root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['A visitor puts a script in their user agent, referrer or URL so it runs when the admin views the logs (stored XSS)', LOW, 'Every value is rendered with textContent, never innerHTML; CSP blocks inline and third-party scripts; tested with live payloads'],
   ['A crafted sign-in link shows misleading text or script (reflected XSS)', LOW, 'Output is HTML-escaped; only known OAuth error codes are displayed'],
-  ['Filters are used to inject SQL into Athena', LOW, 'Sites and ranges come from fixed lists; dates, visitor IDs and IPs must match strict patterns; no user-written SQL; the role can only read'],
+  ['Filters are used to inject SQL into Athena', LOW, 'Sites, ranges, lists and parts come from fixed lists; dates, times, visitor IDs and IPs must match strict patterns; search text is limited to letters, digits and a few safe symbols; no user-written SQL; the role can only read'],
   ['An attacker forges or steals a session cookie', LOW, 'HMAC-SHA256 signature, 12-hour expiry, HttpOnly, Secure, SameSite=Lax, __Host- prefix so sibling subdomains cannot set it'],
   ['Login CSRF, code interception or an open redirect', LOW, 'state, nonce and PKCE (S256); fixed redirect URI; ID token signature, issuer, tenant, audience and expiry checked'],
   ['Someone with another Microsoft account signs in', LOW, 'Single-tenant app with assignment required, plus an @dliu.com domain check in the Lambda'],

@@ -1,17 +1,19 @@
 import {
-  $, api, ago, bucketOf, buckets, card, chart, dataTable, describeUA, el, fmt, formatTime, handleError, ipLink,
-  isBot, kpis, period, periodBar, periodText, series, setStatus, siteLink, siteName, sparkline, start, state,
+  $, ago, bucketOf, buckets, card, chart, describeUA, el, fmt, formatTime, ipLink,
+  kpis, pagedTable, part, period, periodBar, periodText, series, setStatus, siteLink, siteName, sparkline, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
 const periodNote = el('p', { class: 'period-note' });
-const kpiBox = el('div');
+const kpiBox = el('div', { class: 'kpi-box' });
 const overTime = card('Visits over time');
 const sitesBox = el('div', { class: 'site-cards' });
 const ipCard = card('Latest IP addresses', { subtitle: 'people only · click an IP to see everything it did' });
-const ips = dataTable({
-  limit: 15,
-  placeholder: 'Find IP, site, browser…',
+const ips = pagedTable({
+  list: 'ips',
+  params: () => ({ site: 'all', bots: 'hide', ...period() }),
+  pageSize: 15,
+  placeholder: 'Search IP, site, user agent…',
   empty: 'No visitors in this period',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
@@ -48,39 +50,47 @@ function siteCard(key, row, sparkValues) {
   return link;
 }
 
-async function load() {
-  setStatus('Loading…');
-  try {
-    const data = await api(`/api/overview?${new URLSearchParams({ site: 'all', ...period() })}`);
-    const { filters } = data;
-    const total = data.summary[0] || {};
-    periodNote.textContent = `Showing ${periodText(filters)} (UTC days). Bots and crawlers are left out of visitors and page views.`;
-    kpiBox.replaceChildren(kpis([
-      ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
-      ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
-      ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
-      ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
-    ]));
+const scope = () => ({ site: 'all', ...period() });
+const overview = (name) => part('/api/overview', name, scope());
 
-    const keys = buckets(filters);
-    overTime.body.replaceChildren(chart(keys, {
-      hourly: filters.hourly,
-      bars: series(keys, data.timeseries, 'pageviews'),
-      line: series(keys, data.timeseries, 'visitors'),
-      barLabel: 'Page views',
-      lineLabel: 'Visitors',
-    }));
+const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
+  const total = rows[0] || {};
+  periodNote.textContent = `Showing ${periodText(filters)}. Bots and crawlers are left out of visitors and page views.`;
+  kpiBox.replaceChildren(kpis([
+    ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
+    ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
+    ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
+    ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
+  ]));
+});
 
-    const bySite = new Map(data.sites.map((row) => [row.site, row]));
-    const order = [...new Set([...data.sites.map((r) => r.site), ...Object.keys(state.siteHosts)])];
-    sitesBox.replaceChildren(...order.map((key) => siteCard(key, bySite.get(key),
-      series(keys, data.site_series.filter((r) => r.site === key), 'pageviews', (r) => bucketOf(r.bucket, filters.hourly)))));
+const loadChart = widget(overTime.node, () => overview('timeseries'), ({ filters, rows }) => {
+  const keys = buckets(filters);
+  overTime.body.replaceChildren(chart(keys, {
+    unit: filters.unit,
+    bars: series(keys, rows, 'pageviews'),
+    line: series(keys, rows, 'visitors'),
+    barLabel: 'Page views',
+    lineLabel: 'Visitors',
+  }));
+});
 
-    ips.set(data.ips.filter((row) => !isBot(row)));
-    setStatus('');
-  } catch (error) {
-    handleError(error);
-  }
+const loadSites = widget(sitesBox, () => Promise.all([overview('sites'), overview('site_series')]), ([sites, sparks]) => {
+  const { filters } = sites;
+  const keys = buckets(filters);
+  const bySite = new Map(sites.rows.map((row) => [row.site, row]));
+  const order = [...new Set([...sites.rows.map((r) => r.site), ...Object.keys(state.siteHosts)])];
+  sitesBox.replaceChildren(...order.map((key) => siteCard(key, bySite.get(key),
+    series(keys, sparks.rows.filter((r) => r.site === key), 'pageviews', (r) => bucketOf(r.bucket, filters.unit)))));
+});
+
+// Every widget loads on its own and shows its data as soon as it arrives.
+function load() {
+  setStatus('');
+  loadKpis();
+  loadChart();
+  loadSites();
+  ips.load();
 }
 
 start(load);

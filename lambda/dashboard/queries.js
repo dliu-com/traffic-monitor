@@ -2,8 +2,10 @@
 
 // All user input is validated against strict allowlists/patterns before it is placed in SQL.
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGES = { '24h': 1, '7d': 7, '30d': 30, '90d': 90, '365d': 365 };
+const RANGE_HOURS = { '1h': 1, '12h': 12, '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24, '365d': 365 * 24 };
+const MAX_CUSTOM_DAYS = 366;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$/;
 const VISITOR_ID = /^[a-z0-9]{8,40}$/;
 const IP = /^[0-9a-fA-F:.]{2,45}$/;
 const IDENTIFIER = /^[a-z0-9_]+$/;
@@ -26,34 +28,48 @@ function settings(env = process.env) {
 }
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+const sqlTime = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 
+// Chart buckets: minutes for up to 3 hours, hours for up to 3 days, days beyond that.
+const unitFor = (ms) => (ms <= 3 * 3600e3 ? 'minute' : ms <= 3 * DAY_MS ? 'hour' : 'day');
+
+// Returns the days to read (log partitions) plus an optional exact [since, until) window in UTC.
 function parseFilters(query = {}, now = Date.now(), env = process.env) {
   const { sites } = settings(env);
   const site = query.site || 'all';
   if (site !== 'all' && !sites.includes(site)) throw new BadRequest('Unknown site');
 
   if (query.from || query.to) {
-    const { from, to } = query;
-    if (!DAY.test(from || '') || !DAY.test(to || '')) throw new BadRequest('from/to must be YYYY-MM-DD');
-    const span = (Date.parse(to) - Date.parse(from)) / DAY_MS;
-    if (!(span >= 0 && span <= 366)) throw new BadRequest('Custom range must be 0-366 days');
-    return { site, startDay: from, endDay: to, since: null, hourly: span < 2 };
+    const { from = '', to = '' } = query;
+    if (DAY.test(from) && DAY.test(to)) {
+      const span = (Date.parse(to) - Date.parse(from)) / DAY_MS;
+      if (!(span >= 0 && span <= MAX_CUSTOM_DAYS)) throw new BadRequest(`Custom range must be 0-${MAX_CUSTOM_DAYS} days`);
+      return { site, startDay: from, endDay: to, since: null, until: null, unit: unitFor((span + 1) * DAY_MS) };
+    }
+    if (!INSTANT.test(from) || !INSTANT.test(to)) throw new BadRequest('from/to must be YYYY-MM-DD or YYYY-MM-DDTHH:MMZ');
+    const start = Date.parse(from);
+    const end = Date.parse(to);
+    if (!(end > start && end - start <= MAX_CUSTOM_DAYS * DAY_MS)) throw new BadRequest(`Custom range must end after it starts and span at most ${MAX_CUSTOM_DAYS} days`);
+    return { site, startDay: isoDay(start), endDay: isoDay(end - 1000), since: sqlTime(start), until: sqlTime(end), unit: unitFor(end - start) };
   }
 
   const range = query.range || '7d';
-  if (!Object.hasOwn(RANGES, range)) throw new BadRequest('Unknown range');
-  const days = RANGES[range];
-  if (range === '24h') {
-    const since = new Date(now - DAY_MS).toISOString().slice(0, 19).replace('T', ' ');
-    return { site, startDay: isoDay(now - DAY_MS), endDay: isoDay(now), since, hourly: true };
+  if (!Object.hasOwn(RANGE_HOURS, range)) throw new BadRequest('Unknown range');
+  const hours = RANGE_HOURS[range];
+  if (hours <= 24) {
+    const start = now - hours * 3600e3;
+    return { site, startDay: isoDay(start), endDay: isoDay(now), since: sqlTime(start), until: null, unit: unitFor(hours * 3600e3) };
   }
-  return { site, startDay: isoDay(now - (days - 1) * DAY_MS), endDay: isoDay(now), since: null, hourly: false };
+  return { site, startDay: isoDay(now - (hours - 24) * 3600e3), endDay: isoDay(now), since: null, until: null, unit: 'day' };
 }
 
 function base(filters, env = process.env) {
   const { database, table } = settings(env);
   const siteFilter = filters.site === 'all' ? '' : `\n      AND site = '${filters.site}'`;
-  const sinceFilter = filters.since ? `\n    WHERE ts >= from_iso8601_timestamp('${filters.since.replace(' ', 'T')}Z')` : '';
+  const window = [];
+  if (filters.since) window.push(`ts >= from_iso8601_timestamp('${filters.since.replace(' ', 'T')}Z')`);
+  if (filters.until) window.push(`ts < from_iso8601_timestamp('${filters.until.replace(' ', 'T')}Z')`);
+  const sinceFilter = window.length ? `\n    WHERE ${window.join(' AND ')}` : '';
   return `WITH r AS (
     SELECT site,
       from_iso8601_timestamp(concat(cast("date" AS varchar), 'T', time, 'Z')) AS ts,
@@ -81,10 +97,8 @@ function base(filters, env = process.env) {
 const TS = (expr) => `date_format(${expr}, '%Y-%m-%dT%H:%i:%sZ')`;
 
 function overviewQueries(filters, env = process.env) {
-  const { rootDomain } = settings(env);
   const cte = base(filters, env);
-  const unit = filters.hourly ? 'hour' : 'day';
-  const internal = `(^|\\.)${rootDomain.replace(/[^a-z0-9.-]/gi, '').replace(/\./g, '\\.')}$`;
+  const unit = ['minute', 'hour', 'day'].includes(filters.unit) ? filters.unit : 'day';
   return {
     summary: `${cte}
 SELECT count(*) AS requests,
@@ -114,56 +128,131 @@ FROM v GROUP BY site ORDER BY pageviews DESC, requests DESC`,
 SELECT site, ${TS(`date_trunc('${unit}', ts)`)} AS bucket,
   count_if(is_page AND NOT is_bot) AS pageviews
 FROM v GROUP BY 1, 2 ORDER BY 1, 2`,
-    pages: `${cte}
-SELECT site, path, count(*) AS views, count(DISTINCT visitor) AS visitors
-FROM v WHERE is_page AND NOT is_bot
-GROUP BY site, path ORDER BY views DESC LIMIT 25`,
-    referrers: `${cte}
-SELECT url_extract_host(referrer) AS referrer, count(*) AS views, count(DISTINCT visitor) AS visitors
-FROM v WHERE is_page AND NOT is_bot AND referrer IS NOT NULL
-  AND NOT regexp_like(coalesce(url_extract_host(referrer), ''), '${internal}')
-GROUP BY 1 ORDER BY views DESC LIMIT 25`,
-    ips: `${cte}
-SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
-  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  count(DISTINCT visitor_id) AS cookies, max_by(visitor_id, ts) AS visitor_id,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot
-FROM v GROUP BY ip ORDER BY max(ts) DESC LIMIT 1000`,
   };
 }
 
-function requestsQuery(filters, query = {}, env = process.env) {
-  const conditions = [];
-  if (query.visitor) {
-    if (!VISITOR_ID.test(query.visitor)) throw new BadRequest('Invalid visitor id');
-    conditions.push(`visitor_id = '${query.visitor}'`);
-  }
-  if (query.ip) {
-    if (!IP.test(query.ip)) throw new BadRequest('Invalid IP');
-    conditions.push(`ip = '${query.ip}'`);
-  }
-  if (query.bots === 'hide') conditions.push('NOT is_bot');
-  if (query.pages === 'only') conditions.push('is_page');
-  const limit = Math.min(Math.max(parseInt(query.limit, 10) || 200, 1), 1000);
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  return `${base(filters, env)}
-SELECT ${TS('ts')} AS time, site, ip, visitor_id, method, host, path, status, referrer, ua, result, is_bot, is_page
-FROM v ${where}
-ORDER BY ts DESC LIMIT ${limit}`;
+// Tables are paged on the server: each call returns one page plus the total number of matching rows.
+const PAGE_MAX = 100;
+const OFFSET_MAX = 100000;
+const SEARCH = /^[\p{L}\p{N}\p{M} ._:/@?=&+~,#%()-]{0,100}$/u;
+
+function searchCondition(q, columns) {
+  if (!SEARCH.test(q)) throw new BadRequest('Search may only use letters, digits, spaces and . _ : / @ ? = & + ~ , # % ( ) -');
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  const text = `lower(concat_ws(' ', ${columns.map((c) => `coalesce(cast(${c} AS varchar), '')`).join(', ')}))`;
+  return words.map((word) => `strpos(${text}, '${word}') > 0`);
 }
 
-// Everything one IP address did, plus other IPs that sent the same dl_vid cookie (likely the same person).
-function ipQueries(filters, ip, env = process.env) {
+function pageNumber(value, fallback, min, max) {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : fallback;
+}
+
+function requireIp(ip) {
   if (!IP.test(ip || '')) throw new BadRequest('Invalid IP');
+  return `ip = '${ip}'`;
+}
+
+const LISTS = {
+  ips: (q) => ({
+    sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot
+FROM v GROUP BY ip`,
+    where: q.bots === 'hide' ? ['NOT is_bot'] : [],
+    search: ['ip', 'sites', 'last_ua'],
+    order: 'last_seen DESC, ip',
+  }),
+  pages: () => ({
+    sql: `SELECT site, path, count(*) AS views, count(DISTINCT visitor) AS visitors
+FROM v WHERE is_page AND NOT is_bot GROUP BY site, path`,
+    search: ['path'],
+    order: 'views DESC, path',
+  }),
+  referrers: (q, env) => {
+    const { rootDomain } = settings(env);
+    const internal = `(^|\\.)${rootDomain.replace(/[^a-z0-9.-]/gi, '').replace(/\./g, '\\.')}$`;
+    return {
+      sql: `SELECT url_extract_host(referrer) AS referrer, count(*) AS views, count(DISTINCT visitor) AS visitors
+FROM v WHERE is_page AND NOT is_bot AND referrer IS NOT NULL
+  AND NOT regexp_like(coalesce(url_extract_host(referrer), ''), '${internal}')
+GROUP BY 1`,
+      search: ['referrer'],
+      order: 'views DESC, referrer',
+    };
+  },
+  requests: (q) => {
+    const conditions = [];
+    if (q.visitor) {
+      if (!VISITOR_ID.test(q.visitor)) throw new BadRequest('Invalid visitor id');
+      conditions.push(`visitor_id = '${q.visitor}'`);
+    }
+    if (q.ip) conditions.push(requireIp(q.ip));
+    if (q.bots === 'hide') conditions.push('NOT is_bot');
+    if (q.pages === 'only') conditions.push('is_page');
+    return {
+      sql: `SELECT ${TS('ts')} AS time, site, ip, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
+FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
+      search: ['site', 'ip', 'method', 'path', 'status', 'referrer', 'ua'],
+      order: '"time" DESC, ip, path',
+    };
+  },
+  // Other IPs that sent a dl_vid cookie also seen on this IP (likely the same person).
+  related: (q) => {
+    const match = requireIp(q.ip);
+    return {
+      allSites: true,
+      sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua
+FROM v
+WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
+GROUP BY ip`,
+      search: ['ip', 'sites', 'last_ua'],
+      order: 'last_seen DESC, ip',
+    };
+  },
+  cookies: (q) => ({
+    allSites: true,
+    sql: `SELECT visitor_id, count(*) AS requests, count_if(is_page) AS pageviews,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v WHERE ${requireIp(q.ip)} AND visitor_id IS NOT NULL
+GROUP BY visitor_id`,
+    search: ['visitor_id', 'sites'],
+    order: 'last_seen DESC, visitor_id',
+  }),
+};
+
+function listQuery(filters, query = {}, env = process.env) {
+  if (!Object.hasOwn(LISTS, query.list || '')) throw new BadRequest('Unknown list');
+  const list = LISTS[query.list](query, env);
+  const limit = pageNumber(query.limit, 20, 1, PAGE_MAX);
+  const offset = pageNumber(query.offset, 0, 0, OFFSET_MAX);
+  const where = [...(list.where || []), ...searchCondition(query.q || '', list.search)];
+  return {
+    limit,
+    offset,
+    sql: `${base(list.allSites ? { ...filters, site: 'all' } : filters, env)}
+SELECT *, count(*) OVER () AS total FROM (
+${list.sql}
+) t${where.length ? `\nWHERE ${where.join(' AND ')}` : ''}
+ORDER BY ${list.order}
+OFFSET ${offset} LIMIT ${limit}`,
+  };
+}
+
+// Summary of one IP address across every site; its long lists come from listQuery.
+function ipQueries(filters, ip, env = process.env) {
+  const match = requireIp(ip);
   const cte = base({ ...filters, site: 'all' }, env);
-  const match = `ip = '${ip}'`;
   return {
     summary: `${cte}
 SELECT count(*) AS requests, count_if(is_page) AS pageviews,
   count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  array_join(array_sort(array_agg(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL)), ',') AS cookies,
+  count(DISTINCT visitor_id) AS cookies,
   max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
   count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
 FROM v WHERE ${match}`,
@@ -172,18 +261,7 @@ SELECT site, count(*) AS requests, count_if(is_page) AS pageviews,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
 FROM v WHERE ${match}
 GROUP BY site ORDER BY max(ts) DESC`,
-    related: `${cte}
-SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
-  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua
-FROM v
-WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
-GROUP BY ip ORDER BY max(ts) DESC LIMIT 100`,
-    requests: `${cte}
-SELECT ${TS('ts')} AS time, site, method, path, status, referrer, ua, visitor_id, result, is_bot, is_page
-FROM v WHERE ${match}
-ORDER BY ts DESC LIMIT 1000`,
   };
 }
 
-module.exports = { BadRequest, base, ipQueries, overviewQueries, parseFilters, requestsQuery, settings };
+module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, parseFilters, settings };

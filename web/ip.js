@@ -1,6 +1,6 @@
 import {
-  $, IP_PATTERN, api, ago, card, dataTable, describeUA, el, facts, fmt, formatTime, handleError, ipLink, isBot, kpis,
-  pageLink, period, periodBar, periodText, setStatus, siteLink, siteName, start,
+  $, IP_PATTERN, ago, card, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
+  pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -9,11 +9,13 @@ const ip = new URLSearchParams(location.search).get('ip') || '';
 const home = el('a', { text: 'All sites' });
 const title = el('h2', {}, [ip]);
 const periodNote = el('p', { class: 'period-note' });
-const kpiBox = el('div');
+const kpiBox = el('div', { class: 'kpi-box' });
 const aboutCard = card('About this IP');
+// The summary fills the title, KPIs and "About this IP"; one spinner covers the KPIs and the About card.
+const summaryBox = el('div', {}, [kpiBox, aboutCard.node]);
 
 const sitesCard = card('Sites visited');
-const sites = dataTable({
+const sites = staticTable({
   empty: 'No requests from this IP in this period',
   columns: [
     { label: 'Site', value: (r) => siteName(r.site), href: (r) => siteLink(r.site) },
@@ -26,9 +28,12 @@ const sites = dataTable({
 sitesCard.body.append(sites.node);
 
 const relatedCard = card('Same visitor on other IPs', { subtitle: 'IPs that sent the same dl_vid cookie' });
-const related = dataTable({
-  limit: 10,
-  placeholder: 'Find IP…',
+const scope = () => ({ site: 'all', ip, ...period() });
+const related = pagedTable({
+  list: 'related',
+  params: scope,
+  pageSize: 10,
+  placeholder: 'Search IP, site, user agent…',
   empty: 'None — this cookie was only seen on this IP',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
@@ -41,10 +46,30 @@ const related = dataTable({
 relatedCard.head.append(related.search);
 relatedCard.body.append(related.node);
 
+const cookieCard = card('Visitor cookies', { subtitle: 'dl_vid IDs sent from this IP' });
+const cookies = pagedTable({
+  list: 'cookies',
+  params: scope,
+  pageSize: 10,
+  placeholder: 'Search cookie ID, site…',
+  empty: 'No dl_vid cookie was sent from this IP',
+  columns: [
+    { label: 'Cookie ID', value: (r) => r.visitor_id, cls: 'nowrap' },
+    { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
+    { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
+  ],
+});
+cookieCard.head.append(cookies.search);
+cookieCard.body.append(cookies.node);
+
 const logCard = card('Requests', { subtitle: 'newest first' });
-const log = dataTable({
-  limit: 50,
-  placeholder: 'Find path, site, status…',
+const log = pagedTable({
+  list: 'requests',
+  params: scope,
+  pageSize: 50,
+  placeholder: 'Search path, site, status…',
   empty: 'No requests',
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
@@ -64,47 +89,49 @@ page.append(
   el('p', { class: 'crumbs' }, [home, ' › IP address']),
   el('div', { class: 'page-head' }, [title, periodBar(load)]),
   periodNote,
-  kpiBox,
-  aboutCard.node,
-  el('div', { class: 'grid grid-pair' }, [sitesCard.node, relatedCard.node]),
+  summaryBox,
+  el('div', { class: 'grid grid-pair' }, [sitesCard.node, cookieCard.node]),
+  relatedCard.node,
   logCard.node,
 );
 
-async function load() {
+const ipPart = (name) => part('/api/ip', name, { ip, ...period() });
+
+const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows }) => {
+  const s = rows[0] || {};
+  const seen = Number(s.requests) > 0;
+  periodNote.textContent = `Showing ${periodText(filters)} across all sites.`;
+  title.replaceChildren(ip, seen ? el('span', { class: `tag${isBot(s) ? ' bot' : ''}`, text: isBot(s) ? 'Bot' : 'Person' }) : null);
+  kpiBox.replaceChildren(kpis([
+    ['Page views', fmt(s.pageviews), 'HTML page loads'],
+    ['Requests', fmt(s.requests), 'Everything, including assets'],
+    ['Sites', fmt(s.sites)],
+    ['Days active', fmt(s.days), 'UTC days with at least one request'],
+  ]));
+  const lookup = el('a', { href: `https://ipinfo.io/${encodeURIComponent(ip)}`, target: '_blank', rel: 'noopener noreferrer', text: 'Look up location and network on ipinfo.io ↗' });
+  aboutCard.body.replaceChildren(
+    facts([
+      ['First seen', seen ? `${formatTime(s.first_seen)} (${ago(s.first_seen)})` : ''],
+      ['Last seen', seen ? `${formatTime(s.last_seen)} (${ago(s.last_seen)})` : ''],
+      ['Latest browser', describeUA(s.last_ua), s.last_ua],
+      ['Different browsers', seen ? fmt(s.user_agents) : ''],
+      ['Visitor cookies (dl_vid)', seen ? fmt(s.cookies) : ''],
+      ['Errors', seen ? fmt(s.errors) : ''],
+    ]),
+    el('p', {}, [lookup]),
+  );
+  setStatus(seen ? '' : 'This IP made no requests in this period. Try a longer period.');
+});
+
+const loadSites = widget(sitesCard.node, () => ipPart('sites'), ({ rows }) => sites.set(rows));
+
+// Every widget loads on its own and shows its data as soon as it arrives.
+function load() {
   home.setAttribute('href', pageLink('/'));
-  setStatus('Loading…');
-  try {
-    const data = await api(`/api/ip?${new URLSearchParams({ ip, ...period() })}`);
-    const s = data.summary[0] || {};
-    const seen = Number(s.requests) > 0;
-    periodNote.textContent = `Showing ${periodText(data.filters)} (UTC days) across all sites.`;
-    title.replaceChildren(ip, seen ? el('span', { class: `tag${isBot(s) ? ' bot' : ''}`, text: isBot(s) ? 'Bot' : 'Person' }) : null);
-    kpiBox.replaceChildren(kpis([
-      ['Page views', fmt(s.pageviews), 'HTML page loads'],
-      ['Requests', fmt(s.requests), 'Everything, including assets'],
-      ['Sites', fmt(s.sites)],
-      ['Days active', fmt(s.days), 'UTC days with at least one request'],
-    ]));
-    const cookies = (s.cookies || '').split(',').filter(Boolean);
-    const lookup = el('a', { href: `https://ipinfo.io/${encodeURIComponent(ip)}`, target: '_blank', rel: 'noopener noreferrer', text: 'Look up location and network on ipinfo.io ↗' });
-    aboutCard.body.replaceChildren(
-      facts([
-        ['First seen', seen ? `${formatTime(s.first_seen)} (${ago(s.first_seen)})` : ''],
-        ['Last seen', seen ? `${formatTime(s.last_seen)} (${ago(s.last_seen)})` : ''],
-        ['Latest browser', describeUA(s.last_ua), s.last_ua],
-        ['Different browsers', seen ? fmt(s.user_agents) : ''],
-        ['Visitor cookies (dl_vid)', cookies.length ? `${cookies.slice(0, 5).join(', ')}${cookies.length > 5 ? ` +${cookies.length - 5} more` : ''}` : 'none', cookies.join(', ')],
-        ['Errors', seen ? fmt(s.errors) : ''],
-      ]),
-      el('p', {}, [lookup]),
-    );
-    sites.set(data.sites);
-    related.set(data.related);
-    log.set(data.requests);
-    setStatus(seen ? '' : 'This IP made no requests in this period. Try a longer period.');
-  } catch (error) {
-    handleError(error);
-  }
+  setStatus('');
+  loadSummary();
+  loadSites();
+  for (const table of [cookies, related, log]) table.load();
 }
 
 start(async () => {
@@ -113,5 +140,5 @@ start(async () => {
     return;
   }
   document.title = `${ip} · Traffic`;
-  await load();
+  load();
 });

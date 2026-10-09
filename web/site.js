@@ -1,6 +1,6 @@
 import {
-  $, api, ago, buckets, card, chart, dataTable, describeUA, el, fmt, formatTime, handleError, ipLink, isBot, kpis,
-  pageLink, period, periodBar, periodText, series, setStatus, siteName, start, state,
+  $, ago, buckets, card, chart, describeUA, el, fmt, formatTime, ipLink, isBot, kpis,
+  pageLink, pagedTable, part, period, periodBar, periodText, series, setStatus, siteName, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -16,13 +16,16 @@ const crumb = el('span');
 const home = el('a', { text: 'All sites' });
 const openLink = el('a', { target: '_blank', rel: 'noopener noreferrer', text: 'Open site ↗' });
 const periodNote = el('p', { class: 'period-note' });
-const kpiBox = el('div');
+const kpiBox = el('div', { class: 'kpi-box' });
 const overTime = card('Visits over time');
 
 const pagesCard = card('Top pages');
-const pages = dataTable({
-  limit: 10,
-  placeholder: 'Find page…',
+const scope = () => ({ site, ...period() });
+const pages = pagedTable({
+  list: 'pages',
+  params: scope,
+  pageSize: 10,
+  placeholder: 'Search pages…',
   empty: 'No page views',
   columns: [
     { label: 'Page', value: (r) => r.path, cls: 'wrap' },
@@ -34,9 +37,11 @@ pagesCard.head.append(pages.search);
 pagesCard.body.append(pages.node);
 
 const refCard = card('External referrers');
-const referrers = dataTable({
-  limit: 10,
-  placeholder: 'Find referrer…',
+const referrers = pagedTable({
+  list: 'referrers',
+  params: scope,
+  pageSize: 10,
+  placeholder: 'Search referrers…',
   empty: 'No external referrers',
   columns: [
     { label: 'Referrer', value: (r) => r.referrer || '(unknown)', cls: 'wrap' },
@@ -49,9 +54,11 @@ refCard.body.append(referrers.node);
 
 const ipBots = checkbox('Include bots', false);
 const ipCard = card('IP addresses', { subtitle: 'click an IP to see everything it did' });
-const ips = dataTable({
-  limit: 20,
-  placeholder: 'Find IP, browser…',
+const ips = pagedTable({
+  list: 'ips',
+  params: () => ({ ...scope(), ...(ipBots.input.checked ? {} : { bots: 'hide' }) }),
+  pageSize: 20,
+  placeholder: 'Search IP, user agent…',
   empty: 'No visitors in this period',
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
@@ -69,9 +76,11 @@ ipCard.body.append(ips.node);
 const hideBots = checkbox('Hide bots', true);
 const pagesOnly = checkbox('Pages only', false);
 const logCard = card('Request log', { subtitle: 'newest first' });
-const log = dataTable({
-  limit: 20,
-  placeholder: 'Find path, IP, status…',
+const log = pagedTable({
+  list: 'requests',
+  params: () => ({ ...scope(), ...(hideBots.input.checked ? { bots: 'hide' } : {}), ...(pagesOnly.input.checked ? { pages: 'only' } : {}) }),
+  pageSize: 20,
+  placeholder: 'Search path, IP, status, user agent…',
   empty: 'No requests',
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
@@ -98,56 +107,43 @@ page.append(
   logCard.node,
 );
 
-let ipRows = [];
-const showIps = () => ips.set(ipBots.input.checked ? ipRows : ipRows.filter((r) => !isBot(r)));
-ipBots.input.addEventListener('change', showIps);
+const reload = (table) => () => table.load();
+ipBots.input.addEventListener('change', reload(ips));
+hideBots.input.addEventListener('change', reload(log));
+pagesOnly.input.addEventListener('change', reload(log));
 
-async function loadLog() {
-  try {
-    const params = { site, ...period(), limit: '1000' };
-    if (hideBots.input.checked) params.bots = 'hide';
-    if (pagesOnly.input.checked) params.pages = 'only';
-    const data = await api(`/api/requests?${new URLSearchParams(params)}`);
-    log.set(data.requests);
-  } catch (error) {
-    handleError(error);
-  }
-}
-hideBots.input.addEventListener('change', loadLog);
-pagesOnly.input.addEventListener('change', loadLog);
+const overview = (name) => part('/api/overview', name, scope());
 
-async function load() {
+const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
+  const total = rows[0] || {};
+  periodNote.textContent = `Showing ${periodText(filters)}. Bots and crawlers are left out of visitors and page views.`;
+  kpiBox.replaceChildren(kpis([
+    ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
+    ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
+    ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
+    ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
+    ['Errors', fmt(total.errors), 'Responses with status 400 or higher'],
+  ]));
+});
+
+const loadChart = widget(overTime.node, () => overview('timeseries'), ({ filters, rows }) => {
+  const keys = buckets(filters);
+  overTime.body.replaceChildren(chart(keys, {
+    unit: filters.unit,
+    bars: series(keys, rows, 'pageviews'),
+    line: series(keys, rows, 'visitors'),
+    barLabel: 'Page views',
+    lineLabel: 'Visitors',
+  }));
+});
+
+// Every widget loads on its own and shows its data as soon as it arrives.
+function load() {
   home.setAttribute('href', pageLink('/'));
-  setStatus('Loading…');
-  try {
-    const data = await api(`/api/overview?${new URLSearchParams({ site, ...period() })}`);
-    const { filters } = data;
-    const total = data.summary[0] || {};
-    periodNote.textContent = `Showing ${periodText(filters)} (UTC days). Bots and crawlers are left out of visitors and page views.`;
-    kpiBox.replaceChildren(kpis([
-      ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
-      ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
-      ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
-      ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
-      ['Errors', fmt(total.errors), 'Responses with status 400 or higher'],
-    ]));
-    const keys = buckets(filters);
-    overTime.body.replaceChildren(chart(keys, {
-      hourly: filters.hourly,
-      bars: series(keys, data.timeseries, 'pageviews'),
-      line: series(keys, data.timeseries, 'visitors'),
-      barLabel: 'Page views',
-      lineLabel: 'Visitors',
-    }));
-    pages.set(data.pages);
-    referrers.set(data.referrers);
-    ipRows = data.ips;
-    showIps();
-    await loadLog();
-    setStatus('');
-  } catch (error) {
-    handleError(error);
-  }
+  setStatus('');
+  loadKpis();
+  loadChart();
+  for (const table of [pages, referrers, ips, log]) table.load();
 }
 
 start(async () => {
@@ -160,5 +156,5 @@ start(async () => {
   crumb.textContent = siteName(site);
   openLink.setAttribute('href', `https://${state.siteHosts[site]}/`);
   document.title = `${state.siteHosts[site]} · Traffic`;
-  await load();
+  load();
 });
