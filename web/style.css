@@ -149,3 +149,7 @@ td.nowrap { white-space: nowrap; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .loading::after { animation-duration: 2.5s; } }
+/* Site card sparkline placeholder: a small spinner until the per-site series arrives */
+.spark-slot { height: 32px; }
+.spark-slot.loading { min-height: 32px; }
+.spark-slot.loading::after { top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-width: 2px; }
