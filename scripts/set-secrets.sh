@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stores the Microsoft Entra sign-in settings in SSM Parameter Store.
-# Values are read interactively and sent to AWS on stdin, so they never appear in
-# shell history, process arguments, or this repository.
+# Values are read interactively and passed to AWS via a private temp file, so they never
+# appear in shell history, process arguments, or this repository.
 set -euo pipefail
 
 REGION="${AWS_REGION:-eu-west-1}"
@@ -12,9 +12,18 @@ current() {
 }
 
 put() { # name type value
+  # The value goes through a private temp file (not argv) so it never shows up in `ps`.
+  local input
+  input="$(umask 077; mktemp)"
   NAME="$PREFIX/$1" TYPE="$2" VALUE="$3" node -e '
     process.stdout.write(JSON.stringify({ Name: process.env.NAME, Type: process.env.TYPE, Value: process.env.VALUE, Overwrite: true }));
-  ' | aws ssm put-parameter --region "$REGION" --cli-input-json file:///dev/stdin >/dev/null
+  ' > "$input"
+  if ! aws ssm put-parameter --region "$REGION" --cli-input-json "file://$input" >/dev/null; then
+    rm -f "$input"
+    echo "Failed to save $PREFIX/$1" >&2
+    exit 1
+  fi
+  rm -f "$input"
   echo "  saved $PREFIX/$1 ($2)"
 }
 
