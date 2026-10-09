@@ -2,7 +2,8 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { visitor: null, ip: null };
+  const state = { visitor: null, ip: null, siteHosts: {} };
+  const siteName = (key) => state.siteHosts[key] || key;
   const number = new Intl.NumberFormat();
 
   function setStatus(text, isError) {
@@ -149,7 +150,7 @@
     const data = await api(`/api/requests?${filterQuery(extra)}`);
     renderTable($('requests'), [
       ['Time', (r) => formatTime(r.time)],
-      ['Site', 'site'],
+      ['Site', (r) => siteName(r.site)],
       ['IP', 'ip'],
       ['Visitor', 'visitor_id'],
       ['Method', 'method'],
@@ -173,14 +174,14 @@
     const data = await api(`/api/overview?${filterQuery()}`);
     renderKpis(data.summary);
     renderChart(data.timeseries, data.filters.hourly);
-    renderTable($('sites'), [['Site', 'site'], ['Requests', 'requests', 'num'], ['Page views', 'pageviews', 'num'], ['Visitors', 'visitors', 'num']], data.sites);
-    renderTable($('pages'), [['Site', 'site'], ['Path', 'path', 'wrap'], ['Views', 'views', 'num'], ['Visitors', 'visitors', 'num']], data.pages);
+    renderTable($('sites'), [['Site', (r) => siteName(r.site)], ['Requests', 'requests', 'num'], ['Page views', 'pageviews', 'num'], ['Visitors', 'visitors', 'num']], data.sites);
+    renderTable($('pages'), [['Site', (r) => siteName(r.site)], ['Path', 'path', 'wrap'], ['Views', 'views', 'num'], ['Visitors', 'visitors', 'num']], data.pages);
     renderTable($('referrers'), [['Referrer', 'referrer', 'wrap'], ['Views', 'views', 'num'], ['Visitors', 'visitors', 'num']], data.referrers);
     renderTable($('visitors'), [
       ['Visitor', (r) => r.visitor_id || `(no cookie) ${r.last_ip}`],
       ['First seen', (r) => formatTime(r.first_seen)],
       ['Last seen', (r) => formatTime(r.last_seen)],
-      ['Sites', 'sites'],
+      ['Sites', (r) => String(r.sites || '').split(',').filter(Boolean).map(siteName).join(', ')],
       ['Page views', 'pageviews', 'num'],
       ['Requests', 'requests', 'num'],
       ['IPs', 'ips', 'num'],
@@ -207,7 +208,8 @@
     try {
       const me = await api('/api/me');
       $('user').textContent = me.user;
-      for (const site of me.sites || []) $('site').append(el('option', { value: site, text: site }));
+      state.siteHosts = me.sites || {};
+      for (const [key, host] of Object.entries(state.siteHosts)) $('site').append(el('option', { value: key, text: host }));
       $('account').hidden = false;
       $('filters').hidden = false;
       $('dashboard').hidden = false;

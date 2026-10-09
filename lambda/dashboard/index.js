@@ -66,7 +66,7 @@ function createHandler(deps = {}) {
       const session = auth.getSession(event, config, clock());
       if (!session) return json(401, { error: 'Not signed in' });
 
-      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().sites });
+      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
       if (path === '/api/overview') {
         const filters = parseFilters(params, clock());
         const queries = overviewQueries(filters);

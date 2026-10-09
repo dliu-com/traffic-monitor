@@ -17,8 +17,12 @@ function settings(env = process.env) {
   const database = env.GLUE_DATABASE || 'traffic';
   const table = env.GLUE_TABLE || 'cloudfront_logs';
   if (!IDENTIFIER.test(database) || !IDENTIFIER.test(table)) throw new Error('Invalid Glue identifiers');
-  const sites = String(env.SITES || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return { database, table, sites, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
+  const siteHosts = {};
+  for (const entry of String(env.SITES || '').split(',')) {
+    const [key, host] = entry.split('=').map((s) => s.trim());
+    if (key) siteHosts[key] = host || key;
+  }
+  return { database, table, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
 }
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);

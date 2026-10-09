@@ -45,8 +45,8 @@ export const LOG_COLUMNS: Array<[string, string]> = [
 ];
 
 export interface TrafficMonitorStackProps extends StackProps {
-  /** Site keys used as log prefixes (raw/<key>/) and Athena partitions. */
-  sites: string[];
+  /** Sites: key is the log prefix (raw/<key>/) and Athena partition; host is shown on the dashboard. */
+  sites: { key: string; host: string }[];
   /** Subdomain for the dashboard, under the MainDomain export. */
   dashboardSubdomain?: string;
   /** Raw log retention. */
@@ -133,7 +133,7 @@ export class TrafficMonitorStack extends Stack {
           'skip.header.line.count': '2',
           'projection.enabled': 'true',
           'projection.site.type': 'enum',
-          'projection.site.values': props.sites.join(','),
+          'projection.site.values': props.sites.map((s) => s.key).join(','),
           'projection.dt.type': 'date',
           'projection.dt.format': 'yyyy-MM-dd',
           'projection.dt.range': '2026-01-01,NOW',
@@ -186,7 +186,7 @@ export class TrafficMonitorStack extends Stack {
       environment: {
         SITE_URL: siteUrl,
         ROOT_DOMAIN: rootDomain,
-        SITES: props.sites.join(','),
+        SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
         GLUE_DATABASE,
         GLUE_TABLE,
         ATHENA_WORKGROUP,

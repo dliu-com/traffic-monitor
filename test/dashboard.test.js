@@ -2,7 +2,7 @@ const { BadRequest, overviewQueries, parseFilters, requestsQuery } = require('..
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
-const env = { SITES: 'root,cyy,xiangqi', GLUE_DATABASE: 'traffic', GLUE_TABLE: 'cloudfront_logs', ROOT_DOMAIN: 'dliu.com' };
+const env = { SITES: 'root=dliu.com,cyy=cyy.dliu.com,xiangqi=xiangqi.dliu.com', GLUE_DATABASE: 'traffic', GLUE_TABLE: 'cloudfront_logs', ROOT_DOMAIN: 'dliu.com' };
 const NOW = Date.UTC(2026, 9, 9, 12, 30, 0);
 
 describe('filters', () => {
@@ -90,7 +90,7 @@ describe('handler', () => {
   test('me returns the user and sites', async () => {
     const response = await request('/api/me', signedIn);
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: ['root', 'cyy', 'xiangqi'] });
+    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: { root: 'dliu.com', cyy: 'cyy.dliu.com', xiangqi: 'xiangqi.dliu.com' } });
   });
 
   test('overview runs all queries', async () => {

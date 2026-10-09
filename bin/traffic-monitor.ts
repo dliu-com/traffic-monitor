@@ -10,7 +10,7 @@ if (region !== 'eu-west-1') throw new Error('TrafficMonitor must be deployed to 
 
 const app = new App();
 new TrafficMonitorStack(app, 'TrafficMonitor', {
-  sites: sites.map((site) => site.key),
+  sites: sites.map(({ key, host }) => ({ key, host })),
   tags: { service: 'traffic-monitor' },
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region },
 });

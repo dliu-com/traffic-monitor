@@ -3,7 +3,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { LOG_COLUMNS, TrafficMonitorStack } from '../lib/traffic-monitor-stack';
 
 const template = Template.fromStack(new TrafficMonitorStack(new App(), 'TrafficMonitor', {
-  sites: ['root', 'cyy'],
+  sites: [{ key: 'root', host: 'dliu.com' }, { key: 'cyy', host: 'cyy.dliu.com' }],
   env: { account: '123456789012', region: 'eu-west-1' },
 }));
 
