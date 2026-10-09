@@ -96,8 +96,11 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
-- Country and ASN come from CloudFront itself; logs written before the switch to v2 (9 Oct 2026) have none.
-- The partitioner also still files legacy logs from `raw/<site>/` if a site sends them.
+- Country and ASN come from CloudFront itself; requests before the switch to v2 (about 21:00 UTC on 9 Oct 2026)
+  have none.
+- Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
+  are deleted, since v2 already has those requests. The overlap hour was cleaned with
+  `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.
 - CloudFront logs arrive with a delay of a few minutes.
 - Logs are kept for 1 year; raw (unpartitioned) files for 7 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

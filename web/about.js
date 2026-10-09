@@ -214,7 +214,7 @@ detailList('Components', [
 ]);
 detailList('Data and retention', [
   'Each log line has 36 fields; the dashboard uses time, IP, country, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
-  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before 9 October 2026 have no country and show as Unknown.',
+  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown.',
   'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. Requests whose user agent looks like a crawler or script are flagged as bots, left out of visitor and page counts, and hidden in the request list by default.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
   'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',

@@ -1,6 +1,6 @@
 const zlib = require('zlib');
 const { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, processEvent, targetKey, decodeKey, normalizeV2, OUTPUT_FIELDS } = require('../lambda/partitioner');
+const { handler, processEvent, targetKey, decodeKey, normalizeV2, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
 const FIELDS = require('../lambda/partitioner/fields.json');
 
 // A v2 line with every legacy field set to "<name>" plus the three added fields.
@@ -44,7 +44,7 @@ describe('log partitioner', () => {
     const s3 = { send: async (command) => { sent.push(command); return {}; } };
     await processEvent({
       Records: [
-        { s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw/cyy/E1.2026-10-09-23.abc.gz' } } },
+        { s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw/cyy/E1.2026-10-09-21.abc.gz' } } },
         { s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw/cyy/ignore.txt' } } },
       ],
     }, s3);
@@ -52,11 +52,26 @@ describe('log partitioner', () => {
     expect(sent[0]).toBeInstanceOf(CopyObjectCommand);
     expect(sent[0].input).toEqual({
       Bucket: 'logs-bucket',
-      Key: 'logs/site=cyy/dt=2026-10-09/E1.2026-10-09-23.abc.gz',
-      CopySource: 'logs-bucket/raw/cyy/E1.2026-10-09-23.abc.gz',
+      Key: 'logs/site=cyy/dt=2026-10-09/E1.2026-10-09-21.abc.gz',
+      CopySource: 'logs-bucket/raw/cyy/E1.2026-10-09-21.abc.gz',
     });
     expect(sent[1]).toBeInstanceOf(DeleteObjectCommand);
-    expect(sent[1].input).toEqual({ Bucket: 'logs-bucket', Key: 'raw/cyy/E1.2026-10-09-23.abc.gz' });
+    expect(sent[1].input).toEqual({ Bucket: 'logs-bucket', Key: 'raw/cyy/E1.2026-10-09-21.abc.gz' });
+  });
+
+  test('discards legacy logs for hours that v2 covers', async () => {
+    expect(LEGACY_LAST_HOUR).toBe('2026-10-09-21');
+    expect(isRetiredLegacy('raw/cyy/E1.2026-10-09-21.abc.gz')).toBe(false);
+    expect(isRetiredLegacy('raw/cyy/E1.2026-10-08-23.abc.gz')).toBe(false);
+    expect(isRetiredLegacy('raw/cyy/E1.2026-10-09-22.abc.gz')).toBe(true);
+    expect(isRetiredLegacy('raw/cyy/E1.2027-01-01-00.abc.gz')).toBe(true);
+    expect(isRetiredLegacy('raw-v2/cyy/2026/10/10/E1.2026-10-10-00.abc.gz')).toBe(false);
+    const sent = [];
+    const s3 = { send: async (command) => { sent.push(command); return {}; } };
+    await processEvent({ Records: [{ s3: { bucket: { name: 'b' }, object: { key: 'raw/cyy/E1.2026-10-10-00.abc.gz' } } }] }, s3);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toBeInstanceOf(DeleteObjectCommand);
+    expect(sent[0].input).toEqual({ Bucket: 'b', Key: 'raw/cyy/E1.2026-10-10-00.abc.gz' });
   });
 
   test('rewrites v2 files into the table column order', () => {
@@ -120,5 +135,23 @@ describe('log partitioner', () => {
     };
     await processEvent({ Records: [{ s3: { bucket: { name: 'b' }, object: { key: 'raw-v2/cyy/2026/10/09/plain.log' } } }] }, s3);
     expect(zlib.gunzipSync(sent[1].input.Body).toString('utf8').split('\n')[2].split('\t')[34]).toBe('3320');
+  });
+});
+
+describe('overlap de-duplication script', () => {
+  const { withoutSeen, REQUEST_ID } = require('../scripts/dedupe-overlap');
+
+  test('uses the request ID column', () => {
+    expect(FIELDS.legacy[REQUEST_ID]).toBe('x-edge-request-id');
+    expect(OUTPUT_FIELDS[REQUEST_ID]).toBe('x-edge-request-id');
+  });
+
+  test('drops only rows whose request ID was seen, keeping headers', () => {
+    const row = (id) => FIELDS.legacy.map((name, i) => (i === REQUEST_ID ? id : name)).join('\t');
+    const text = `#Version: 1.0\n#Fields: x\n${row('a')}\n${row('b')}\n`;
+    const { text: out, dropped } = withoutSeen(text, new Set(['a']));
+    expect(dropped).toBe(1);
+    expect(out).toBe(`#Version: 1.0\n#Fields: x\n${row('b')}\n`);
+    expect(withoutSeen(out, new Set(['a'])).dropped).toBe(0);
   });
 });
