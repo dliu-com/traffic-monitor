@@ -243,7 +243,7 @@ export class TrafficMonitorStack extends Stack {
     const headers = new cloudfront.ResponseHeadersPolicy(this, 'DashboardHeaders', {
       securityHeadersBehavior: {
         contentSecurityPolicy: {
-          contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+          contentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://files.dliu.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
           override: true,
         },
         contentTypeOptions: { override: true },
