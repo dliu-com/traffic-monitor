@@ -5,8 +5,8 @@
   "description": "Central traffic monitoring for the *.dliu.com CloudFront sites, with a private dashboard at traffic.dliu.com.",
   "scripts": {
     "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy --ci --require-approval never",
+    "diff": "cdk diff --all",
+    "deploy": "cdk deploy --all --ci --require-approval never",
     "test": "jest"
   },
   "devDependencies": {

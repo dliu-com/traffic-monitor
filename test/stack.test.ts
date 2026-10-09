@@ -1,6 +1,7 @@
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { LOG_COLUMNS, TrafficMonitorStack } from '../lib/traffic-monitor-stack';
+import { ADDED_COLUMNS, LOG_COLUMNS, TrafficMonitorStack } from '../lib/traffic-monitor-stack';
+import { RECORD_FIELDS, TrafficLogDeliveryStack } from '../lib/log-delivery-stack';
 
 const template = Template.fromStack(new TrafficMonitorStack(new App(), 'TrafficMonitor', {
   sites: [{ key: 'root', host: 'dliu.com' }, { key: 'cyy', host: 'cyy.dliu.com' }],
@@ -14,6 +15,7 @@ test('log bucket allows CloudFront ACL-based delivery and expires logs after a y
       Rules: Match.arrayWith([
         Match.objectLike({ Prefix: 'logs/', ExpirationInDays: 365 }),
         Match.objectLike({ Prefix: 'raw/', ExpirationInDays: 7 }),
+        Match.objectLike({ Prefix: 'raw-v2/', ExpirationInDays: 7 }),
       ]),
     },
   });
@@ -44,6 +46,91 @@ test('glue table uses partition projection over site and day', () => {
     }),
   });
   expect(LOG_COLUMNS).toHaveLength(33);
+  expect(ADDED_COLUMNS.map(([name]) => name)).toEqual(['c_country', 'asn', 'vid_log']);
+  template.hasResourceProperties('AWS::Glue::Table', {
+    TableInput: Match.objectLike({
+      StorageDescriptor: Match.objectLike({
+        Columns: Match.arrayWith([
+          { Name: 'sc_range_end', Type: 'bigint' },
+          { Name: 'c_country', Type: 'string' },
+          { Name: 'asn', Type: 'string' },
+          { Name: 'vid_log', Type: 'string' },
+        ]),
+      }),
+    }),
+  });
+});
+
+test('glue columns line up with the requested v2 log fields', () => {
+  expect(RECORD_FIELDS).toHaveLength(LOG_COLUMNS.length + ADDED_COLUMNS.length);
+  const normalise = (name: string) => name.toLowerCase().replace(/[()-]/g, '_').replace(/_+$/, '');
+  const expected = [...LOG_COLUMNS, ...ADDED_COLUMNS].map(([name]) => name);
+  const renamed: Record<string, string> = { cs_referer: 'cs_referrer', viewer_response_log_data: 'vid_log' };
+  expect(RECORD_FIELDS.map(normalise).map((n) => renamed[n] ?? n)).toEqual(expected);
+});
+
+test('log delivery service can only write raw-v2/ for this account', () => {
+  template.hasResourceProperties('AWS::S3::BucketPolicy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Sid: 'AWSLogDeliveryWrite',
+          Principal: { Service: 'delivery.logs.amazonaws.com' },
+          Action: 's3:PutObject',
+          Condition: {
+            StringEquals: { 's3:x-amz-acl': 'bucket-owner-full-control', 'aws:SourceAccount': '123456789012' },
+            ArnLike: { 'aws:SourceArn': 'arn:aws:logs:us-east-1:123456789012:delivery-source:*' },
+          },
+        }),
+      ]),
+    },
+  });
+  const policy = JSON.stringify(template.findResources('AWS::S3::BucketPolicy'));
+  expect(policy).toContain('/raw-v2/*');
+  template.hasResourceProperties('Custom::S3BucketNotifications', {
+    NotificationConfiguration: {
+      LambdaFunctionConfigurations: [
+        Match.objectLike({ Filter: { Key: { FilterRules: [{ Name: 'prefix', Value: 'raw/' }] } } }),
+        Match.objectLike({ Filter: { Key: { FilterRules: [{ Name: 'prefix', Value: 'raw-v2/' }] } } }),
+      ],
+    },
+  });
+});
+
+describe('log delivery stack', () => {
+  const delivery = Template.fromStack(new TrafficLogDeliveryStack(new App(), 'TrafficLogDelivery', {
+    logBucketName: 'example-log-bucket',
+    sites: [{ key: 'root', distributionId: 'E1EXAMPLE' }, { key: 'cyy', distributionId: 'E2EXAMPLE' }],
+    env: { account: '123456789012', region: 'us-east-1' },
+  }));
+
+  test('delivers each distribution to raw-v2/<site>/ with country, ASN and visitor ID', () => {
+    delivery.hasResourceProperties('AWS::Logs::DeliveryDestination', {
+      DestinationResourceArn: 'arn:aws:s3:::example-log-bucket/raw-v2',
+      OutputFormat: 'w3c',
+    });
+    delivery.resourceCountIs('AWS::Logs::DeliverySource', 2);
+    delivery.hasResourceProperties('AWS::Logs::DeliverySource', {
+      Name: 'traffic-root',
+      ResourceArn: 'arn:aws:cloudfront::123456789012:distribution/E1EXAMPLE',
+      LogType: 'ACCESS_LOGS',
+    });
+    delivery.hasResourceProperties('AWS::Logs::Delivery', {
+      DeliverySourceName: 'traffic-cyy',
+      S3SuffixPath: 'cyy/{yyyy}/{MM}/{dd}',
+      FieldDelimiter: '\t',
+      RecordFields: Match.arrayWith(['c-ip', 'cs(Cookie)', 'c-country', 'asn', 'viewer-response-log-data']),
+    });
+  });
+
+  test('refuses other regions and bad site config', () => {
+    expect(() => new TrafficLogDeliveryStack(new App(), 'X', {
+      logBucketName: 'b', sites: [], env: { account: '123456789012', region: 'eu-west-1' },
+    })).toThrow(/us-east-1/);
+    expect(() => new TrafficLogDeliveryStack(new App(), 'Y', {
+      logBucketName: 'b', sites: [{ key: 'Bad Key', distributionId: 'E1EXAMPLE' }], env: { account: '123456789012', region: 'us-east-1' },
+    })).toThrow(/Invalid site/);
+  });
 });
 
 test('athena workgroup enforces a scan limit', () => {

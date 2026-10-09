@@ -1,6 +1,6 @@
 import {
-  $, ago, buckets, card, chart, describeUA, el, fmt, formatTime, ipLink, isBot, kpis,
-  pageLink, pagedTable, part, period, periodBar, periodText, series, setStatus, siteName, start, state, widget,
+  $, ago, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el, filters, fmt,
+  formatTime, ipLink, isBot, kpis, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -20,7 +20,13 @@ const kpiBox = el('div', { class: 'kpi-box' });
 const overTime = card('Visits over time');
 
 const pagesCard = card('Top pages');
-const scope = () => ({ site, ...period() });
+const scope = () => ({ site, ...filters() });
+const countryCard = card('Countries', { subtitle: 'click one to filter' });
+const countries = countriesTable(scope);
+countryCard.head.append(countries.search);
+countryCard.body.append(countries.node);
+const picker = countrySelect(scope, load);
+const note = countryNote(load);
 const pages = pagedTable({
   list: 'pages',
   params: scope,
@@ -58,11 +64,12 @@ const ips = pagedTable({
   list: 'ips',
   params: () => ({ ...scope(), ...(ipBots.input.checked ? {} : { bots: 'hide' }) }),
   pageSize: 20,
-  placeholder: 'Search IP, user agent…',
+  placeholder: 'Search IP, country, user agent…',
   empty: 'No visitors in this period',
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
+    { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
@@ -86,6 +93,7 @@ const log = pagedTable({
   columns: [
     { label: 'Time', value: (r) => formatTime(r.time), cls: 'nowrap' },
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
+    { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'Method', value: (r) => r.method },
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
@@ -98,10 +106,11 @@ logCard.body.append(log.node);
 
 page.append(
   el('p', { class: 'crumbs' }, [home, ' › ', crumb]),
-  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), periodBar(load)]),
+  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), el('div', { class: 'page-tools' }, [picker.node, periodBar(load)])]),
   periodNote,
+  note.node,
   kpiBox,
-  overTime.node,
+  el('div', { class: 'grid grid-chart' }, [overTime.node, countryCard.node]),
   el('div', { class: 'grid grid-pair' }, [pagesCard.node, refCard.node]),
   ipCard.node,
   logCard.node,
@@ -141,9 +150,11 @@ const loadChart = widget(overTime.node, () => overview('timeseries'), ({ filters
 function load() {
   home.setAttribute('href', pageLink('/'));
   setStatus('');
+  note.update();
+  picker.load();
   loadKpis();
   loadChart();
-  for (const table of [pages, referrers, ips, log]) table.load();
+  for (const table of [countries, pages, referrers, ips, log]) table.load();
 }
 
 start(async () => {

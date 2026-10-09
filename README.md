@@ -2,14 +2,18 @@
 
 Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFront).
 
-- **Capture** – each site's CloudFront distribution writes standard access logs (with cookies) to one central S3 bucket.
+- **Capture** – CloudFront standard logging (v2) delivers each site's access logs (with cookies, country and ASN)
+  to one central S3 bucket. The deliveries live in a second stack, `TrafficLogDelivery`, in us-east-1.
 - **Identify visitors** – a shared CloudFront Function (`dliu-visitor-id`, viewer-response) sets a first-party
-  `dl_vid` cookie on `.dliu.com`, so the same visitor is recognised across all subdomains.
-- **Query** – a partitioner Lambda moves logs into `logs/site=<site>/dt=<date>/`; Glue + Athena (partition projection) query them.
+  `dl_vid` cookie on `.dliu.com`, so the same visitor is recognised across all subdomains. It also writes the ID
+  into the log line (`cf.logCustomData`), so a visitor's first request, sent before they had the cookie, counts under the same ID.
+- **Query** – a partitioner Lambda puts each file's columns in a fixed order and moves it into `logs/site=<site>/dt=<date>/`;
+  Glue + Athena (partition projection) query them.
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
-  - `/` **All sites** – totals, visits over time, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
-  - `/site?site=<key>` **Site** – one site's chart, top pages, referrers, IP addresses and request log.
-  - `/ip?ip=<address>` **IP** – everything one IP did across all sites, plus other IPs that sent the same `dl_vid` cookie.
+  - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
+  - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
+  - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country and network), plus other IPs with the same `dl_vid`.
+  - A country filter (`?country=GB`, or `unknown`) narrows the All sites and Site pages; click a country in the Countries table to apply it.
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
   - Every widget loads on its own (`/api/overview` and `/api/ip` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
@@ -17,18 +21,23 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
 - **Security** – `https://traffic.dliu.com/security`, the threat model, live penetration-test results and accepted risks.
 
 ```
-site CloudFront ──logs──▶ S3 raw/<site>/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
-        └─ viewer-response: dliu-visitor-id (sets dl_vid)
+site CloudFront ──v2 logs──▶ S3 raw-v2/<site>/YYYY/MM/DD/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
+        └─ viewer-response: dliu-visitor-id (sets dl_vid, logs it)
 ```
 
-Cost at low traffic: roughly $0–0.20/month (S3 storage, Athena scans of a few MB, Lambda/CloudFront free tier).
+Cost at low traffic: roughly $0.10–0.40/month (log delivery at $0.25/GB, S3 requests and storage, Athena scans of a few MB,
+Lambda/CloudFront free tier) — about $2.60 a year with one peak day a week.
 
 ## Deploy
+
+First copy `config/distributions.example.json` to `config/distributions.local.json` (gitignored) and fill in each
+site's CloudFront distribution ID.
 
 ```bash
 make install
 make test
-make deploy        # stack "TrafficMonitor" in eu-west-1 (needs the DNS stack exports MainDomain / MainHostedZoneId)
+make deploy        # "TrafficMonitor" in eu-west-1 (needs the DNS stack exports MainDomain / MainHostedZoneId),
+                   # then "TrafficLogDelivery" in us-east-1 (needs `cdk bootstrap` there once)
 make outputs
 ```
 
@@ -53,25 +62,20 @@ Renew the client secret before it expires and re-run `make set-secrets`.
 
 ## Adding a site
 
-1. Add the site key to `config/sites.json` and redeploy this stack.
-2. In the site's CDK stack (same account/region):
+1. Add the site's key and host to `config/sites.json`, its CloudFront distribution ID to the gitignored
+   `config/distributions.local.json` (format: `config/distributions.example.json`), and run `make deploy`;
+   this creates its log delivery to `raw-v2/<site-key>/`.
+2. In the site's CDK stack (same account/region), attach the visitor function and turn on cookie logging
+   (without a legacy log bucket):
 
 ```js
-const logBucket = s3.Bucket.fromBucketAttributes(this, 'TrafficLogs', {
-  bucketName: cdk.Fn.importValue('TrafficLogBucketName'),
-  region: 'eu-west-1',
-});
 const visitorId = cloudfront.Function.fromFunctionAttributes(this, 'VisitorId', {
   functionArn: cdk.Fn.importValue('TrafficVisitorFunctionArn'),
   functionName: 'dliu-visitor-id',
 });
 
-new cloudfront.Distribution(this, 'Distribution', {
+const distribution = new cloudfront.Distribution(this, 'Distribution', {
   // ...existing props
-  enableLogging: true,
-  logBucket,
-  logFilePrefix: 'raw/<site-key>/',
-  logIncludesCookies: true,
   defaultBehavior: {
     // ...existing props
     functionAssociations: [
@@ -80,13 +84,20 @@ new cloudfront.Distribution(this, 'Distribution', {
     ],
   },
 });
+// Cookie logging for standard logging (v2); no legacy log bucket.
+(distribution.node.defaultChild as cloudfront.CfnDistribution)
+  .addPropertyOverride('DistributionConfig.Logging', { IncludeCookies: true });
 ```
 
 Deploy `TrafficMonitor` before any site; it can't be deleted while sites import its exports.
 
 ## Notes
 
-- A visitor's very first request carries no cookie; the dashboard falls back to `ip:<address>` for it.
-- CloudFront standard logs arrive with a delay of a few minutes.
+- Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID
+  later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
+  (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
+- Country and ASN come from CloudFront itself; logs written before the switch to v2 (9 Oct 2026) have none.
+- The partitioner also still files legacy logs from `raw/<site>/` if a site sends them.
+- CloudFront logs arrive with a delay of a few minutes.
 - Logs are kept for 1 year; raw (unpartitioned) files for 7 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

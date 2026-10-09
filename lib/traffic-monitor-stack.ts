@@ -44,6 +44,13 @@ export const LOG_COLUMNS: Array<[string, string]> = [
   ['sc_range_start', 'bigint'], ['sc_range_end', 'bigint'],
 ];
 
+// Extra standard logging (v2) fields, after the legacy ones: viewer country, viewer network (ASN) and
+// the visitor ID the visitor-id function logs. Files from legacy logging read these as NULL.
+export const ADDED_COLUMNS: Array<[string, string]> = [['c_country', 'string'], ['asn', 'string'], ['vid_log', 'string']];
+
+// Standard logging (v2) is delivered under this prefix (see log-delivery-stack.ts).
+export const V2_PREFIX = 'raw-v2';
+
 export interface TrafficMonitorStackProps extends StackProps {
   /** Sites: key is the log prefix (raw/<key>/) and Athena partition; host is shown on the dashboard. */
   sites: { key: string; host: string }[];
@@ -54,6 +61,8 @@ export interface TrafficMonitorStackProps extends StackProps {
 }
 
 export class TrafficMonitorStack extends Stack {
+  readonly logBucket: s3.Bucket;
+
   constructor(scope: Construct, id: string, props: TrafficMonitorStackProps) {
     super(scope, id, props);
 
@@ -77,26 +86,52 @@ export class TrafficMonitorStack extends Stack {
       lifecycleRules: [
         { id: 'expire-logs', prefix: 'logs/', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-unprocessed-raw', prefix: 'raw/', expiration: Duration.days(7) },
+        { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(7) },
         { id: 'abort-multipart', abortIncompleteMultipartUploadAfter: Duration.days(1) },
       ],
     });
+    this.logBucket = logBucket;
+
+    // Standard logging (v2) writes through CloudWatch Logs vended delivery, created in us-east-1.
+    logBucket.addToResourcePolicy(new iam.PolicyStatement({
+      sid: 'AWSLogDeliveryWrite',
+      principals: [new iam.ServicePrincipal('delivery.logs.amazonaws.com')],
+      actions: ['s3:PutObject'],
+      resources: [logBucket.arnForObjects(`${V2_PREFIX}/*`)],
+      conditions: {
+        StringEquals: { 's3:x-amz-acl': 'bucket-owner-full-control', 'aws:SourceAccount': this.account },
+        ArnLike: { 'aws:SourceArn': `arn:aws:logs:us-east-1:${this.account}:delivery-source:*` },
+      },
+    }));
+    logBucket.addToResourcePolicy(new iam.PolicyStatement({
+      sid: 'AWSLogDeliveryAclCheck',
+      principals: [new iam.ServicePrincipal('delivery.logs.amazonaws.com')],
+      actions: ['s3:GetBucketAcl'],
+      resources: [logBucket.bucketArn],
+      conditions: {
+        StringEquals: { 'aws:SourceAccount': this.account },
+        ArnLike: { 'aws:SourceArn': `arn:aws:logs:us-east-1:${this.account}:delivery-source:*` },
+      },
+    }));
 
     const partitioner = new lambda.Function(this, 'LogPartitioner', {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/partitioner')),
       timeout: Duration.seconds(60),
-      memorySize: 256,
-      description: 'Moves CloudFront log files from raw/<site>/ into logs/site=<site>/dt=<day>/',
+      memorySize: 512,
+      description: 'Files CloudFront logs from raw/ and raw-v2/ into logs/site=<site>/dt=<day>/',
       logGroup: new logs.LogGroup(this, 'LogPartitionerLogs', {
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
-    logBucket.grantRead(partitioner, 'raw/*');
-    logBucket.grantDelete(partitioner, 'raw/*');
+    for (const prefix of ['raw', V2_PREFIX]) {
+      logBucket.grantRead(partitioner, `${prefix}/*`);
+      logBucket.grantDelete(partitioner, `${prefix}/*`);
+      logBucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(partitioner), { prefix: `${prefix}/` });
+    }
     logBucket.grantPut(partitioner, 'logs/*');
-    logBucket.addEventNotification(s3.EventType.OBJECT_CREATED, new s3n.LambdaDestination(partitioner), { prefix: 'raw/' });
 
     // ---------- Visitor cookie (attached by each site at viewer-response) ----------
     const visitorCode = fs.readFileSync(path.join(ROOT, 'functions/visitor-id.js'), 'utf8')
@@ -147,7 +182,7 @@ export class TrafficMonitorStack extends Stack {
         ],
         storageDescriptor: {
           location: `s3://${logBucket.bucketName}/logs/`,
-          columns: LOG_COLUMNS.map(([name, type]) => ({ name, type })),
+          columns: [...LOG_COLUMNS, ...ADDED_COLUMNS].map(([name, type]) => ({ name, type })),
           inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
           outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
           serdeInfo: {

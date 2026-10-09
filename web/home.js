@@ -1,22 +1,31 @@
 import {
-  $, ago, bucketOf, buckets, card, chart, describeUA, el, fmt, formatTime, handleError, ipLink,
-  kpis, pagedTable, part, period, periodBar, periodText, series, setStatus, siteLink, siteName, sparkline, start, state, widget,
+  $, ago, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el,
+  filters, fmt, formatTime, handleError, ipLink, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
+  sparkline, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
 const periodNote = el('p', { class: 'period-note' });
 const kpiBox = el('div', { class: 'kpi-box' });
 const overTime = card('Visits over time');
+const scope = () => ({ site: 'all', ...filters() });
+const countryCard = card('Countries', { subtitle: 'click one to filter' });
+const countries = countriesTable(scope);
+countryCard.head.append(countries.search);
+countryCard.body.append(countries.node);
+const picker = countrySelect(scope, load);
+const note = countryNote(load);
 const sitesBox = el('div', { class: 'site-cards' });
 const ipCard = card('Latest IP addresses', { subtitle: 'people only · click an IP to see everything it did' });
 const ips = pagedTable({
   list: 'ips',
-  params: () => ({ site: 'all', bots: 'hide', ...period() }),
+  params: () => ({ ...scope(), bots: 'hide' }),
   pageSize: 15,
-  placeholder: 'Search IP, site, user agent…',
+  placeholder: 'Search IP, site, country, user agent…',
   empty: 'No visitors in this period',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
+    { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
@@ -29,10 +38,11 @@ ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
 page.append(
-  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), periodBar(load)]),
+  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [picker.node, periodBar(load)])]),
   periodNote,
+  note.node,
   kpiBox,
-  overTime.node,
+  el('div', { class: 'grid grid-chart' }, [overTime.node, countryCard.node]),
   el('h2', { text: 'Sites' }),
   sitesBox,
   ipCard.node,
@@ -50,7 +60,6 @@ function siteCard(key, row, slot) {
   ]);
 }
 
-const scope = () => ({ site: 'all', ...period() });
 const overview = (name) => part('/api/overview', name, scope());
 
 const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
@@ -125,9 +134,12 @@ async function loadSites() {
 // Every widget loads on its own and shows its data as soon as it arrives.
 function load() {
   setStatus('');
+  note.update();
+  picker.load();
   loadKpis();
   loadChart();
   loadSites();
+  countries.load();
   ips.load();
 }
 

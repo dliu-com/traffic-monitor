@@ -1,5 +1,5 @@
 import {
-  $, IP_PATTERN, ago, card, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
+  $, IP_PATTERN, ago, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
   pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
 } from './dash.js';
 
@@ -27,7 +27,7 @@ const sites = staticTable({
 });
 sitesCard.body.append(sites.node);
 
-const relatedCard = card('Same visitor on other IPs', { subtitle: 'IPs that sent the same dl_vid cookie' });
+const relatedCard = card('Same visitor on other IPs', { subtitle: 'IPs used by the same dl_vid visitor ID' });
 const scope = () => ({ site: 'all', ip, ...period() });
 const related = pagedTable({
   list: 'related',
@@ -37,6 +37,7 @@ const related = pagedTable({
   empty: 'None — this cookie was only seen on this IP',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
+    { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
@@ -46,15 +47,15 @@ const related = pagedTable({
 relatedCard.head.append(related.search);
 relatedCard.body.append(related.node);
 
-const cookieCard = card('Visitor cookies', { subtitle: 'dl_vid IDs sent from this IP' });
+const cookieCard = card('Visitor IDs', { subtitle: 'dl_vid IDs used from this IP' });
 const cookies = pagedTable({
   list: 'cookies',
   params: scope,
   pageSize: 10,
   placeholder: 'Search cookie ID, site…',
-  empty: 'No dl_vid cookie was sent from this IP',
+  empty: 'No dl_vid visitor ID was seen from this IP',
   columns: [
-    { label: 'Cookie ID', value: (r) => r.visitor_id, cls: 'nowrap' },
+    { label: 'Visitor ID', value: (r) => r.visitor_id, cls: 'nowrap' },
     { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
@@ -108,14 +109,18 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
     ['Sites', fmt(s.sites)],
     ['Days active', fmt(s.days), 'UTC days with at least one request'],
   ]));
-  const lookup = el('a', { href: `https://ipinfo.io/${encodeURIComponent(ip)}`, target: '_blank', rel: 'noopener noreferrer', text: 'Look up location and network on ipinfo.io ↗' });
+  const lookup = el('a', { href: `https://ipinfo.io/${encodeURIComponent(ip)}`, target: '_blank', rel: 'noopener noreferrer', text: 'Look up city and network name on ipinfo.io ↗' });
+  const countries = Number(s.countries) || 0;
   aboutCard.body.replaceChildren(
     facts([
+      ['Country', s.country ? `${countryLabel(s.country)}${countries > 1 ? ` (${countries} countries in this period)` : ''}` : (seen ? 'Not recorded' : ''),
+        s.country ? null : 'Country is recorded by CloudFront for requests logged after country logging started'],
+      ['Network', s.asn ? `AS${s.asn}` : (seen ? 'Not recorded' : ''), 'The autonomous system (ISP or hosting provider) the IP belongs to'],
       ['First seen', seen ? `${formatTime(s.first_seen)} (${ago(s.first_seen)})` : ''],
       ['Last seen', seen ? `${formatTime(s.last_seen)} (${ago(s.last_seen)})` : ''],
       ['Latest browser', describeUA(s.last_ua), s.last_ua],
       ['Different browsers', seen ? fmt(s.user_agents) : ''],
-      ['Visitor cookies (dl_vid)', seen ? fmt(s.cookies) : ''],
+      ['Visitor IDs (dl_vid)', seen ? fmt(s.cookies) : ''],
       ['Errors', seen ? fmt(s.errors) : ''],
     ]),
     el('p', {}, [lookup]),

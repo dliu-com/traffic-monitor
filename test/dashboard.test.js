@@ -1,4 +1,4 @@
-const { BadRequest, ipQueries, listQuery, overviewQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, base, ipQueries, listQuery, overviewQueries, parseFilters } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -7,12 +7,12 @@ const NOW = Date.UTC(2026, 9, 9, 12, 30, 0);
 
 describe('filters', () => {
   test('defaults to 7 days across all sites', () => {
-    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day' });
+    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', country: null, startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day' });
   });
 
   test('24h uses an hourly timestamp filter', () => {
     expect(parseFilters({ range: '24h', site: 'cyy' }, NOW, env))
-      .toEqual({ site: 'cyy', startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour' });
+      .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour' });
   });
 
   test('1 and 12 hour ranges', () => {
@@ -22,7 +22,7 @@ describe('filters', () => {
 
   test('custom ranges with times', () => {
     expect(parseFilters({ from: '2026-10-07T22:15Z', to: '2026-10-08T01:00:00Z' }, NOW, env))
-      .toEqual({ site: 'all', startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute' });
+      .toEqual({ site: 'all', country: null, startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute' });
     expect(parseFilters({ from: '2026-10-01T00:00Z', to: '2026-10-02T00:00Z' }, NOW, env)).toMatchObject({ endDay: '2026-10-01', unit: 'hour' });
     for (const bad of [{ from: '2026-10-08T01:00Z', to: '2026-10-08T01:00Z' }, { from: '2024-01-01T00:00Z', to: '2026-01-01T00:00Z' },
       { from: "2026-10-08T01:00Z'", to: '2026-10-09T01:00Z' }, { from: '2026-10-08 01:00', to: '2026-10-09T01:00Z' }]) {
@@ -46,8 +46,39 @@ describe('filters', () => {
     [{ range: '__proto__' }],
     [{ range: 'toString' }],
     [{ from: "2026-01-01'", to: '2026-01-02' }],
+    [{ country: 'jp' }],
+    [{ country: 'JPN' }],
+    [{ country: "JP' OR 1=1 --" }],
+    [{ country: 'Unknown' }],
   ])('rejects %j', (query) => {
     expect(() => parseFilters(query, NOW, env)).toThrow(BadRequest);
+  });
+});
+
+describe('country filter', () => {
+  test('applies to every overview and list query', () => {
+    const filters = parseFilters({ country: 'JP', range: '7d' }, NOW, env);
+    expect(filters.country).toBe('JP');
+    for (const sql of Object.values(overviewQueries(filters, env))) expect(sql).toContain("AND c_country = 'JP'");
+    for (const list of ['ips', 'countries', 'pages', 'referrers', 'requests']) {
+      expect(listQuery(filters, { list }, env).sql).toContain("AND c_country = 'JP'");
+    }
+    expect(base(parseFilters({ country: 'unknown' }, NOW, env), env)).toContain("AND coalesce(c_country, '-') = '-'");
+    expect(base(parseFilters({}, NOW, env), env)).not.toContain('AND c_country');
+  });
+
+  test('is ignored on the IP page, which always covers everything an IP did', () => {
+    const filters = parseFilters({ country: 'JP' }, NOW, env);
+    for (const sql of Object.values(ipQueries(filters, '192.0.2.1', env))) expect(sql).not.toContain('c_country =');
+    for (const list of ['related', 'cookies']) expect(listQuery(filters, { list, ip: '192.0.2.1' }, env).sql).not.toContain('c_country =');
+  });
+
+  test('countries list ranks countries by visitors', () => {
+    const { sql } = listQuery(parseFilters({}, NOW, env), { list: 'countries', q: 'jp' }, env);
+    expect(sql).toContain("coalesce(country, 'unknown') AS country");
+    expect(sql).toContain("nullif(c_country, '-') AS country");
+    expect(sql).toMatch(/ORDER BY visitors DESC, requests DESC, country\n/);
+    expect(sql).toContain(", 'jp') > 0");
   });
 });
 
@@ -66,6 +97,21 @@ describe('sql', () => {
     expect(queries.timeseries).toContain("date_trunc('hour', ts)");
     expect(queries.site_series).toMatch(/GROUP BY 1, 2/);
     expect(queries.sites).toContain('AS last_visit');
+  });
+
+  test('visitor id is the cookie, or the logged id once the browser sent it back', () => {
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).toContain("regexp_extract(url_decode(cs_cookie), 'dl_vid=([a-z0-9]{8,40})', 1) AS cookie_id");
+    expect(sql).toContain("regexp_extract(vid_log, '^([a-z0-9]{8,40})$', 1) AS logged_id");
+    expect(sql).toContain('bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id');
+    expect(sql).toMatch(/FROM r\n    WHERE ts >= [^\n]+\n  \), v AS/);
+    expect(sql).toContain("CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn");
+    expect(sql).not.toMatch(/--/);
+  });
+
+  test('ip summary and ip list include the network (ASN)', () => {
+    expect(ipQueries(filters, '203.0.113.7', env).summary).toContain('max_by(asn, ts) AS asn');
+    expect(listQuery(filters, { list: 'ips' }, env).sql).toContain('max_by(asn, ts) AS asn');
   });
 
   test('ip queries cover every site and validate the IP', () => {

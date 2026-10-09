@@ -132,8 +132,17 @@ export function period() {
   return { range: RANGES.some(([key]) => key === range) ? range : '7d' };
 }
 
+// The country filter (?country=GB, or ?country=unknown) is kept in the URL as well.
+const COUNTRY = /^([A-Z]{2}|unknown)$/;
+export function country() {
+  const value = new URLSearchParams(location.search).get('country');
+  return value && COUNTRY.test(value) ? value : null;
+}
+// Period and country, for the API and for links between pages.
+export const filters = () => ({ ...period(), ...(country() ? { country: country() } : {}) });
+
 export function pageLink(path, params = {}) {
-  return `${path}?${new URLSearchParams({ ...params, ...period() })}`;
+  return `${path}?${new URLSearchParams({ ...params, ...filters() })}`;
 }
 export const siteLink = (site) => pageLink('/site', { site });
 export const ipLink = (ip) => pageLink('/ip', { ip });
@@ -232,6 +241,121 @@ export function periodBar(onChange) {
   });
   mark();
   return el('div', { class: 'period-wrap' }, [bar, custom]);
+}
+
+// ---- countries ----
+let regionNames;
+try {
+  regionNames = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
+} catch {
+  regionNames = null;
+}
+const isCode = (code) => typeof code === 'string' && /^[A-Z]{2}$/.test(code);
+export const flag = (code) => (isCode(code) ? String.fromCodePoint(...[...code].map((c) => 0x1f1a5 + c.charCodeAt(0))) : '');
+export function countryName(code) {
+  if (!isCode(code)) return 'Unknown';
+  return (regionNames && regionNames.of(code)) || code;
+}
+// "🇬🇧 United Kingdom" / "Unknown"
+export const countryLabel = (code) => (isCode(code) ? `${flag(code)} ${countryName(code)}` : 'Unknown');
+// "🇬🇧 GB" for table cells (the full name goes in the tooltip).
+export const countryShort = (code) => (isCode(code) ? `${flag(code)} ${code}` : '');
+export const UNKNOWN_COUNTRY_HINT = 'No country recorded: requests logged before country logging started, or addresses CloudFront could not place';
+
+// A country dropdown that lists the countries seen in the current period (and site), most visitors first.
+// `scope()` returns the site and period to list; choosing a country updates ?country= and calls onChange.
+export function countrySelect(scope, onChange) {
+  const select = el('select', { class: 'country-select', 'aria-label': 'Filter by country' });
+  const wrap = el('label', { class: 'country-filter' }, [el('span', { text: 'Country' }), select]);
+  let request = 0;
+
+  function fill(rows) {
+    const current = country();
+    const seen = new Set();
+    const options = [el('option', { value: '', text: 'All countries', selected: !current })];
+    for (const row of rows) {
+      const code = row.country || 'unknown';
+      if (!COUNTRY.test(code) || seen.has(code)) continue;
+      seen.add(code);
+      options.push(el('option', { value: code, text: `${countryLabel(code)} (${fmt(row.visitors)})`, selected: code === current }));
+    }
+    if (current && !seen.has(current)) options.push(el('option', { value: current, text: `${countryLabel(current)} (0)`, selected: true }));
+    select.replaceChildren(...options);
+  }
+
+  async function load() {
+    const id = ++request;
+    fill([]);
+    wrap.classList.add('loading-inline');
+    try {
+      const { country: _ignored, ...params } = scope();
+      const data = await api(`/api/list?${new URLSearchParams({ list: 'countries', ...params, limit: 100 })}`);
+      if (id === request) fill(data.rows);
+    } catch (error) {
+      if (id === request) handleError(error);
+    } finally {
+      if (id === request) wrap.classList.remove('loading-inline');
+    }
+  }
+
+  select.addEventListener('change', () => {
+    const q = new URLSearchParams(location.search);
+    if (select.value) q.set('country', select.value);
+    else q.delete('country');
+    history.replaceState(null, '', `${location.pathname}?${q}`);
+    onChange();
+  });
+  return { node: wrap, load };
+}
+
+// The "Countries" widget: a paged list of countries for the period, ignoring the country filter so
+// it always shows the full picture; clicking a country filters the page by it.
+export function countriesTable(scope) {
+  return pagedTable({
+    list: 'countries',
+    params: () => {
+      const { country: _ignored, ...params } = scope();
+      return params;
+    },
+    pageSize: 10,
+    placeholder: 'Search country code…',
+    empty: 'No visitors in this period',
+    rowClass: (r) => ((r.country || 'unknown') === country() ? 'selected' : null),
+    columns: [
+      {
+        label: 'Country',
+        value: (r) => countryLabel(r.country === 'unknown' ? null : r.country),
+        href: (r) => {
+          const q = new URLSearchParams(location.search);
+          q.set('country', COUNTRY.test(r.country || '') ? r.country : 'unknown');
+          return `${location.pathname}?${q}`;
+        },
+        title: (r) => (isCode(r.country) ? `Show only ${countryName(r.country)}` : UNKNOWN_COUNTRY_HINT),
+      },
+      { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+      { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
+      { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+    ],
+  });
+}
+
+// Shown under the period when a country filter is on, with a way to clear it.
+export function countryNote(onChange) {
+  const note = el('p', { class: 'country-note', hidden: true });
+  const update = () => {
+    const current = country();
+    note.hidden = !current;
+    if (!current) return;
+    const clear = el('button', { type: 'button', class: 'link-button', text: 'Show all countries' });
+    clear.addEventListener('click', () => {
+      const q = new URLSearchParams(location.search);
+      q.delete('country');
+      history.replaceState(null, '', `${location.pathname}?${q}`);
+      onChange();
+    });
+    note.replaceChildren(`Only visitors from ${countryLabel(current === 'unknown' ? null : current)}. `, clear);
+  };
+  return { node: note, update };
 }
 
 // ---- layout pieces ----

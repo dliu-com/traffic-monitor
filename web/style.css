@@ -153,3 +153,13 @@ td.nowrap { white-space: nowrap; }
 .spark-slot { height: 32px; }
 .spark-slot.loading { min-height: 32px; }
 .spark-slot.loading::after { top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-width: 2px; }
+
+/* Country filter: dropdown next to the period buttons, note when it is on, Countries widget */
+.page-tools { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: flex-start; justify-content: flex-end; }
+.country-filter { display: flex; gap: .5rem; align-items: center; font-size: 15px; color: var(--muted); min-height: 44px; }
+.country-filter select { font-size: 15px; padding: .5rem .6rem; border-radius: 8px; min-height: 44px; max-width: 16rem; color: var(--text); }
+.country-filter.loading-inline select { opacity: .6; }
+.country-note { margin: -.5rem 0 1rem; padding: .5rem .75rem; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
+.grid-chart { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); margin-bottom: .75rem; }
+@media (max-width: 900px) { .grid-chart { grid-template-columns: 1fr; } }
+tr.selected td { background: var(--accent-soft); }

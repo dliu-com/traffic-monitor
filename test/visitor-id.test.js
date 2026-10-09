@@ -1,10 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 
+const logged = [];
+const cf = { logCustomData: (value) => logged.push(value) };
+
 function loadHandler(domain = 'dliu.com') {
   const code = fs.readFileSync(path.join(__dirname, '..', 'functions', 'visitor-id.js'), 'utf8')
     .replace('__COOKIE_DOMAIN__', domain);
-  return new Function(`${code}\nreturn handler;`)();
+  expect(code).toContain("import cf from 'cloudfront';");
+  return new Function('cf', `${code.replace("import cf from 'cloudfront';", '')}\nreturn handler;`)(cf);
 }
 
 function event(host, cookies = {}) {
@@ -37,6 +41,16 @@ describe('visitor-id CloudFront function', () => {
   test('leaves an existing valid cookie alone', () => {
     const response = handler(event('cyy.dliu.com', { dl_vid: { value: 'abc123def456' } }));
     expect(response.cookies.dl_vid).toBeUndefined();
+  });
+
+  test('logs the visitor id for existing and new visitors', () => {
+    logged.length = 0;
+    handler(event('cyy.dliu.com', { dl_vid: { value: 'abc123def456' } }));
+    const fresh = handler(event('cyy.dliu.com')).cookies.dl_vid.value;
+    handler(event('cyy.dliu.com', { dl_vid: { value: 'bad value;' } }));
+    expect(logged.slice(0, 2)).toEqual(['abc123def456', fresh]);
+    expect(logged).toHaveLength(3);
+    expect(logged[2]).toMatch(/^[a-z0-9]+$/);
   });
 
   test('replaces a malformed cookie', () => {

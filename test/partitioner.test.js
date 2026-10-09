@@ -1,5 +1,12 @@
-const { CopyObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, processEvent, targetKey, decodeKey } = require('../lambda/partitioner');
+const zlib = require('zlib');
+const { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { handler, processEvent, targetKey, decodeKey, normalizeV2, OUTPUT_FIELDS } = require('../lambda/partitioner');
+const FIELDS = require('../lambda/partitioner/fields.json');
+
+// A v2 line with every legacy field set to "<name>" plus the three added fields.
+function v2Line(values) {
+  return OUTPUT_FIELDS.map((name) => (name in values ? values[name] : name)).join('\t');
+}
 
 describe('log partitioner', () => {
   test('maps CloudFront log keys to partitioned keys', () => {
@@ -11,6 +18,16 @@ describe('log partitioner', () => {
     expect(targetKey('raw/xiangqi/notes.txt')).toBeNull();
     expect(targetKey('logs/site=x/dt=2026-01-01/E.2026-01-01-00.a.gz')).toBeNull();
     expect(targetKey('raw/a/b/E.2026-01-01-00.a.gz')).toBeNull();
+    expect(targetKey('raw-v2/cyy/2026/10/09')).toBeNull();
+    expect(targetKey('raw-v2/cyy/2026/10/9/a.gz')).toBeNull();
+    expect(targetKey('raw-v2/Cyy/2026/10/09/a.gz')).toBeNull();
+    expect(targetKey('raw-v2/cyy/2026/10/09/../a.gz')).toBeNull();
+  });
+
+  test('maps v2 log keys to partitioned keys', () => {
+    expect(targetKey('raw-v2/weiqi/2026/10/09/EABC.2026-10-09-21.f00d.gz'))
+      .toBe('logs/site=weiqi/dt=2026-10-09/v2-EABC.2026-10-09-21.f00d.gz');
+    expect(targetKey('raw-v2/weiqi/2026/10/09/abc.log')).toBe('logs/site=weiqi/dt=2026-10-09/v2-abc.log.gz');
   });
 
   test('lambda entry point is not callback-style', () => {
@@ -40,5 +57,68 @@ describe('log partitioner', () => {
     });
     expect(sent[1]).toBeInstanceOf(DeleteObjectCommand);
     expect(sent[1].input).toEqual({ Bucket: 'logs-bucket', Key: 'raw/cyy/E1.2026-10-09-23.abc.gz' });
+  });
+
+  test('rewrites v2 files into the table column order', () => {
+    expect(OUTPUT_FIELDS).toEqual([...FIELDS.legacy, ...FIELDS.added]);
+    expect(FIELDS.legacy).toHaveLength(33);
+    const shuffled = ['viewer-response-log-data', 'c-ip', 'c-country', 'date', 'asn'];
+    const text = [
+      '#Version: 1.0',
+      `#Fields: ${shuffled.join(' ')}`,
+      ['abc123def456', '203.0.113.9', 'JP', '2026-10-09', '2516'].join('\t'),
+      ['-', '2001:db8::1', '', '2026-10-09', '-'].join('\t'),
+      '',
+    ].join('\r\n');
+    const lines = normalizeV2(text).split('\n');
+    expect(lines[0]).toBe('#Version: 1.0');
+    expect(lines[1]).toBe(`#Fields: ${OUTPUT_FIELDS.join(' ')}`);
+    expect(lines).toHaveLength(5);
+    expect(lines[4]).toBe('');
+    const row = lines[2].split('\t');
+    expect(row).toHaveLength(36);
+    expect(row[0]).toBe('2026-10-09');
+    expect(row[4]).toBe('203.0.113.9');
+    expect(row[1]).toBe('-');
+    expect(row.slice(33)).toEqual(['JP', '2516', 'abc123def456']);
+    expect(lines[3].split('\t').slice(33)).toEqual(['-', '-', '-']);
+  });
+
+  test('uses the configured field order when a v2 file has no header', () => {
+    const line = v2Line({ 'c-country': 'GB', asn: '16509' });
+    expect(normalizeV2(`${line}\n`).split('\n')[2]).toBe(line);
+  });
+
+  test('converts each v2 file, writes it to its partition, then deletes it', async () => {
+    const sent = [];
+    const raw = zlib.gzipSync(`#Fields: ${OUTPUT_FIELDS.join(' ')}\n${v2Line({ 'c-country': 'FR' })}\n`);
+    const s3 = {
+      send: async (command) => {
+        sent.push(command);
+        if (command instanceof GetObjectCommand) return { Body: { transformToByteArray: async () => raw } };
+        return {};
+      },
+    };
+    await processEvent({
+      Records: [{ s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw-v2/root/2026/10/09/E1.2026-10-09-21.x.gz' } } }],
+    }, s3);
+    expect(sent.map((c) => c.constructor)).toEqual([GetObjectCommand, PutObjectCommand, DeleteObjectCommand]);
+    expect(sent[1].input.Key).toBe('logs/site=root/dt=2026-10-09/v2-E1.2026-10-09-21.x.gz');
+    const written = zlib.gunzipSync(sent[1].input.Body).toString('utf8').split('\n');
+    expect(written[2].split('\t')[33]).toBe('FR');
+    expect(sent[2].input.Key).toBe('raw-v2/root/2026/10/09/E1.2026-10-09-21.x.gz');
+  });
+
+  test('accepts uncompressed v2 files', async () => {
+    const sent = [];
+    const raw = Buffer.from(`${v2Line({ asn: '3320' })}\n`);
+    const s3 = {
+      send: async (command) => {
+        sent.push(command);
+        return command instanceof GetObjectCommand ? { Body: { transformToByteArray: async () => raw } } : {};
+      },
+    };
+    await processEvent({ Records: [{ s3: { bucket: { name: 'b' }, object: { key: 'raw-v2/cyy/2026/10/09/plain.log' } } }] }, s3);
+    expect(zlib.gunzipSync(sent[1].input.Body).toString('utf8').split('\n')[2].split('\t')[34]).toBe('3320');
   });
 });

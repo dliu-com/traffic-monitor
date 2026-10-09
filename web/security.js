@@ -35,13 +35,13 @@ root.append(tiers({
       label: 'Dashboard Lambda', badge: 'API', tone: 'app', link: 'signed by CloudFront (IAM)',
       nodes: [
         { icon: 'lock', title: 'Session check', text: 'Every /api call needs a valid signed session cookie' },
-        { icon: 'filter', title: 'Input allowlists', text: 'Sites, ranges, dates, times, visitor IDs, IPs and search text are validated before any SQL is built' },
+        { icon: 'filter', title: 'Input allowlists', text: 'Sites, ranges, dates, times, countries, visitor IDs, IPs and search text are validated before any SQL is built' },
       ],
     },
     {
       label: 'AWS account', badge: 'Private', tone: 'private', link: 'least-privilege role',
       nodes: [
-        { icon: 's3', title: 'Log buckets', text: 'No public access, encrypted, HTTPS only' },
+        { icon: 's3', title: 'Log buckets', text: 'No public access, encrypted, HTTPS only; only this account’s CloudFront log delivery may write raw-v2/' },
         { icon: 'athena', title: 'Athena', text: 'Read-only queries, 1 GB scan cap' },
         { icon: 'ssm', title: 'Parameter Store', text: 'Client secret stored encrypted, never in code' },
       ],
@@ -74,7 +74,7 @@ root.append(table(['Test', 'Result', 'Status'], [
   ['Header injection', 'Line breaks in callback parameters cannot add headers or cookies', PASS],
   ['Cross-origin requests', 'No CORS headers are sent, so other sites cannot read the API; preflight returns 403', PASS],
   ['Bypassing CloudFront', 'The Lambda function URL and all three S3 buckets return 403 when called directly', PASS],
-  ['SQL injection', "Quotes, comments and UNION payloads in site, range, from, to, visitor, ip, list and part return 400. Search text with quotes, semicolons or angle brackets returns 400; other words are only ever matched as plain text", PASS],
+  ['SQL injection', "Quotes, comments and UNION payloads in site, range, from, to, country, visitor, ip, list and part return 400. Search text with quotes, semicolons or angle brackets returns 400; other words are only ever matched as plain text", PASS],
   ['Prototype keys', 'range=__proto__ or toString caused a 500 error; they now return 400', FIXED],
   ['Oversized requests', 'Ranges over 366 days and repeated parameters return 400; limit is clamped to 1–100', PASS],
   ['Stored XSS', 'Script and onerror payloads were sent to dliu.com in the user agent, referrer, path, query and cookie, then viewed in the dashboard. They appear as plain text and nothing runs', PASS],
@@ -88,7 +88,7 @@ add('h2', 'Threat model');
 root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['A visitor puts a script in their user agent, referrer or URL so it runs when the admin views the logs (stored XSS)', LOW, 'Every value is rendered with textContent, never innerHTML; CSP blocks inline and third-party scripts; tested with live payloads'],
   ['A crafted sign-in link shows misleading text or script (reflected XSS)', LOW, 'Output is HTML-escaped; only known OAuth error codes are displayed'],
-  ['Filters are used to inject SQL into Athena', LOW, 'Sites, ranges, lists and parts come from fixed lists; dates, times, visitor IDs and IPs must match strict patterns; search text is limited to letters, digits and a few safe symbols; no user-written SQL; the role can only read'],
+  ['Filters are used to inject SQL into Athena', LOW, 'Sites, ranges, lists and parts come from fixed lists; dates, times, countries (two capital letters), visitor IDs and IPs must match strict patterns; search text is limited to letters, digits and a few safe symbols; no user-written SQL; the role can only read'],
   ['An attacker forges or steals a session cookie', LOW, 'HMAC-SHA256 signature, 12-hour expiry, HttpOnly, Secure, SameSite=Lax, __Host- prefix so sibling subdomains cannot set it'],
   ['Login CSRF, code interception or an open redirect', LOW, 'state, nonce and PKCE (S256); fixed redirect URI; ID token signature, issuer, tenant, audience and expiry checked'],
   ['Someone with another Microsoft account signs in', LOW, 'Single-tenant app with assignment required, plus an @dliu.com domain check in the Lambda'],
@@ -97,6 +97,8 @@ root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['Fake dl_vid cookies or scripted requests distort the numbers', MEDIUM, 'Cookie format is validated and bots are flagged; the data is analytics only and grants no access'],
   ['Request floods run up the bill', LOW, 'Queries need sign-in; each query stops at 1 GB scanned; repeat queries reuse results for 5 minutes; unauthenticated calls return 401 cheaply'],
   ['Secrets leak through the public repository', LOW, 'The client secret, tenant and client IDs live in encrypted SSM parameters read at run time; git history scanned'],
+  ['Someone writes forged log files into the log bucket to plant fake visits', LOW, 'The bucket policy lets only the log delivery service write, only to raw-v2/, only for delivery sources in this account (aws:SourceAccount and aws:SourceArn); the partitioner only accepts files under raw-v2/<site>/YYYY/MM/DD/ and rewrites their columns by name'],
+  ['The logged visitor ID or country is used to attack the dashboard', LOW, 'The ID is written by our own function after it checks the format; queries accept it only if it is 8 to 40 lowercase letters and digits, the ASN only if it is digits; countries come from CloudFront and are shown with textContent'],
   ['Logged IP addresses and visitor IDs are exposed', MEDIUM, 'Only the admin can query them; buckets are private and encrypted; raw logs deleted after 7 days, sorted logs after 1 year'],
 ]));
 
@@ -105,7 +107,7 @@ const risks = document.createElement('ul');
 for (const text of [
   'There is no WAF or rate limit. Unauthenticated calls to /api or /auth still start the Lambda, which answers 401 for a tiny cost.',
   'Visitor IDs are not cryptographically random and anyone can set their own dl_vid. They are for counting visitors, not for security.',
-  'Logs contain IP addresses and visitor IDs (personal data) for up to one year.',
+  'Logs contain IP addresses, visitor IDs and the country and network of each IP (personal data) for up to one year.',
   'Sessions cannot be revoked on the server; a stolen cookie works until it expires (at most 12 hours).',
   'Sign-out is a plain link, so another site could sign the admin out. Nothing else can be triggered that way.',
   'Unknown pages return 403 rather than 404, because the bucket does not allow listing.',
@@ -149,6 +151,8 @@ detailList('AWS', [
   'The Lambda role can only run queries in its own Athena workgroup, read its Glue table, read parameters under /traffic-monitor/ and use its own bucket prefixes',
   'All buckets block public access, use S3-managed encryption and reject plain HTTP',
   'Athena workgroup settings are enforced, so a query cannot raise its own scan limit',
+  'CloudFront log deliveries (us-east-1) write to the log bucket through delivery.logs.amazonaws.com, limited by the bucket policy to raw-v2/*, bucket-owner-full-control, this account and its own delivery sources',
+  'The partitioner can only read and delete raw files and write logs/; it deletes each raw-v2 file once it has been filed',
 ]);
 details.append(document.createElement('h3'));
 details.lastChild.textContent = 'Further reading';
