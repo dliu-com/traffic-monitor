@@ -65,6 +65,23 @@ test('dashboard routes api and auth to the Lambda without caching', () => {
   template.hasResourceProperties('AWS::Lambda::Url', { AuthType: 'AWS_IAM' });
 });
 
+test('dashboard sends security headers and serves clean info-page URLs', () => {
+  template.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+    ResponseHeadersPolicyConfig: Match.objectLike({
+      SecurityHeadersConfig: Match.objectLike({
+        ContentSecurityPolicy: Match.objectLike({ ContentSecurityPolicy: Match.stringLikeRegexp("script-src 'self';.*frame-ancestors 'none'") }),
+        FrameOptions: Match.objectLike({ FrameOption: 'DENY' }),
+      }),
+      CustomHeadersConfig: { Items: Match.arrayWith([Match.objectLike({ Header: 'Permissions-Policy' }), Match.objectLike({ Header: 'Cross-Origin-Opener-Policy', Value: 'same-origin' })]) },
+    }),
+  });
+  template.hasResourceProperties('AWS::CloudFront::Distribution', {
+    DistributionConfig: Match.objectLike({
+      DefaultCacheBehavior: Match.objectLike({ FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })] }),
+    }),
+  });
+});
+
 test('dashboard Lambda can only read its own SSM parameters', () => {
   template.hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: {

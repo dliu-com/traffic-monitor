@@ -25,6 +25,8 @@ describe('filters', () => {
     [{ site: "cyy' OR 1=1 --" }],
     [{ site: 'unknown' }],
     [{ range: '1y' }],
+    [{ range: '__proto__' }],
+    [{ range: 'toString' }],
     [{ from: "2026-01-01'", to: '2026-01-02' }],
   ])('rejects %j', (query) => {
     expect(() => parseFilters(query, NOW, env)).toThrow(BadRequest);

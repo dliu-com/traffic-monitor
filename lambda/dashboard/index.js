@@ -30,9 +30,8 @@ function errorPage(statusCode, message, cookies) {
     statusCode,
     headers: { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' },
     ...(cookies ? { cookies } : {}),
-    body: `<!doctype html><meta charset="utf-8"><title>Traffic</title>
-<body style="font-family:system-ui;max-width:32rem;margin:4rem auto">
-<h1>Sign-in problem</h1><p>${escapeHtml(message)}</p><p><a href="/auth/login">Try again</a></p></body>`,
+    body: `<!doctype html><meta charset="utf-8"><title>Traffic</title><link rel="stylesheet" href="/style.css">
+<body><main class="error-page"><h1>Sign-in problem</h1><p>${escapeHtml(message)}</p><p><a href="/auth/login">Try again</a></p></main></body>`,
   };
 }
 

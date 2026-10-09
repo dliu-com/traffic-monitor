@@ -74,3 +74,4 @@ table.clickable tbody tr:hover { background: var(--bg); }
 #chart .line { fill: none; stroke: var(--accent); stroke-width: 2; }
 #chart .axis { fill: var(--muted); font-size: 11px; }
 #chart .grid-line { stroke: var(--line); }
+.error-page { max-width: 32rem; margin: 4rem auto; }

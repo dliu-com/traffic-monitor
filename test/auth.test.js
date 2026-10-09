@@ -143,6 +143,12 @@ describe('login flow', () => {
   test('finishLogin surfaces Entra errors', async () => {
     const result = await auth.finishLogin({ queryStringParameters: { error: 'access_denied' } }, config, SITE, { now: NOW });
     expect(result.status).toBe(401);
+    expect(result.error).toBe('Sign-in failed: access_denied');
+  });
+
+  test('finishLogin does not echo arbitrary error text', async () => {
+    const result = await auth.finishLogin({ queryStringParameters: { error: 'Your account is locked, call +1 555' } }, config, SITE, { now: NOW });
+    expect(result.error).toBe('Sign-in failed: unknown_error');
   });
 });
 

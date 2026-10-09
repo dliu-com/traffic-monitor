@@ -131,3 +131,48 @@ export function stats(items) {
   }
   return grid;
 }
+
+// A cell is a string or { text, className }.
+export function table(headers, rows) {
+  const wrap = el('div', 'table-wrap');
+  const tableNode = el('table');
+  const head = el('tr');
+  for (const header of headers) head.append(el('th', '', header));
+  tableNode.append(el('thead'), el('tbody'));
+  tableNode.tHead.append(head);
+  for (const row of rows) {
+    const tr = el('tr');
+    for (const cell of row) tr.append(typeof cell === 'string' ? el('td', '', cell) : el('td', cell.className, cell.text));
+    tableNode.tBodies[0].append(tr);
+  }
+  wrap.append(tableNode);
+  return wrap;
+}
+
+// Cards linking to other info pages: [href, icon, title, line, key fact].
+export function cards(items) {
+  const grid = el('div', 'about-cards');
+  for (const [href, name, title, line, key] of items) {
+    const card = el('a', 'about-card');
+    card.href = href;
+    const body = el('span', 'about-card-text');
+    body.append(el('strong', '', title), el('span', 'about-card-line', line), el('span', 'about-card-key', key));
+    card.append(icon(name), body);
+    grid.append(card);
+  }
+  return grid;
+}
+
+export function more(summary, ...content) {
+  const details = el('details', 'dg-more');
+  const body = el('div');
+  body.append(...content);
+  details.append(el('summary', '', summary), body);
+  return details;
+}
+
+export function callout(name, text) {
+  const box = el('div', 'dg-callout');
+  box.append(icon(name), el('span', '', text));
+  return box;
+}

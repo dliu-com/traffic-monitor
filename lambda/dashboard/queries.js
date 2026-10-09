@@ -41,8 +41,8 @@ function parseFilters(query = {}, now = Date.now(), env = process.env) {
   }
 
   const range = query.range || '7d';
+  if (!Object.hasOwn(RANGES, range)) throw new BadRequest('Unknown range');
   const days = RANGES[range];
-  if (!days) throw new BadRequest('Unknown range');
   if (range === '24h') {
     const since = new Date(now - DAY_MS).toISOString().slice(0, 19).replace('T', ' ');
     return { site, startDay: isoDay(now - DAY_MS), endDay: isoDay(now), since, hourly: true };

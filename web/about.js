@@ -1,4 +1,4 @@
-import { flow, tiers, stats } from './diagram.js';
+import { flow, tiers, stats, table, cards, more } from './diagram.js';
 
 const root = document.getElementById('about');
 
@@ -26,13 +26,13 @@ function list(items) {
 }
 
 root.append(stats([
-  ['$0 idle', 'no servers; pay per request', 'power'],
-  ['All sites', 'every *.dliu.com site, one log stream each', 'cloudfront'],
-  ['~5 min', 'from visit to dashboard', 'clock'],
+  ['0 servers', 'running while nobody visits', 'power'],
+  ['< $1 / month', 'for all sites together', 'budget'],
+  ['≈ 5 min', 'from visit to dashboard', 'clock'],
   ['1 year', 'of request history', 'chart'],
 ]));
 
-section('Architecture');
+section('Technical architecture');
 root.append(tiers({
   title: 'System map',
   rows: [
@@ -104,7 +104,7 @@ root.append(flow({
   note: 'The cookie is HttpOnly and holds only a random ID, never personal data. The very first request, cookie-blocking browsers and most bots fall back to their IP address.',
 }));
 
-section('Authentication', 'The dashboard is private. Every API call needs a signed session that can only be obtained by signing in with a Microsoft work account in the dliu.com directory.');
+section('Authentication', 'The dashboard is private. Every API call needs a signed session that can only be obtained by signing in with a Microsoft work account in the dliu.com directory. The About and Security pages are public.');
 
 root.append(flow({
   title: 'Signing in',
@@ -118,6 +118,41 @@ root.append(flow({
   ],
   note: 'The client secret lives in SSM Parameter Store, not in the code. The sign-in cookie that carries state, nonce and PKCE expires after 10 minutes.',
 }));
+
+section('Cost', 'Nothing runs while nobody is visiting, so there is no fixed monthly fee. Each part is billed per use, and at the traffic of the dliu.com sites almost everything stays inside the AWS free tier or rounds to zero.');
+
+root.append(stats([
+  ['≈ $0.15', 'per month for logging all sites', 'budget'],
+  ['≈ $0.0003', 'per dashboard load (Athena)', 'athena'],
+  ['$0.03', 'worst case per load, capped by the scan limit', 'shield'],
+]));
+
+root.append(table(['Part', 'How it is billed', 'Typical month'], [
+  ['CloudFront log delivery', 'Free; you only pay S3 for the files', { text: '$0', className: 'num' }],
+  ['Visitor ID function', '$0.10 per million site requests', { text: '< $0.01', className: 'num' }],
+  ['S3 requests', 'About 11,000 log files a month; each is written once and copied once ($0.005 per 1,000)', { text: '≈ $0.12', className: 'num' }],
+  ['S3 storage', 'Gzipped logs of about 25 MB a month, kept for one year', { text: '< $0.01', className: 'num' }],
+  ['Partitioner Lambda', 'One short call per log file', { text: '$0 (free tier)', className: 'num' }],
+  ['Athena', '$5 per TB scanned, 10 MB minimum per query; a dashboard load runs 6 queries', { text: '≈ $0.03 for 100 loads', className: 'num' }],
+  ['Dashboard Lambda, CloudFront, Glue, SSM', 'Per request, or free at this size', { text: '$0', className: 'num' }],
+]));
+root.append(Object.assign(document.createElement('p'), {
+  className: 'dg-note',
+  textContent: 'Prices are for eu-west-1 (Ireland) in October 2026. File counts were measured on the live log bucket. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, plus $0.10 per million requests.',
+}));
+
+root.append(flow({
+  title: 'What keeps the bill small',
+  steps: [
+    { icon: 'power', title: 'No idle servers', text: 'Lambda and Athena run only when used' },
+    { icon: 'filter', title: 'Partitions', text: 'Queries read only the chosen sites and days' },
+    { icon: 'budget', title: 'Scan cap', text: 'Each query stops at 1 GB scanned' },
+    { icon: 'clock', title: 'Result reuse', text: 'The same query within 5 minutes is free' },
+    { icon: 's3', title: 'Lifecycle', text: 'Raw files deleted after 7 days, logs after 1 year', tone: 'good' },
+  ],
+}));
+
+section('Security', 'The monitor stores data that visitors control, such as their browser name and the address they typed, so every logged value is treated as hostile. It is shown on the dashboard as plain text and never placed into SQL. The site was threat-modelled and penetration-tested on 9 October 2026; the four issues found were fixed the same day.');
 
 root.append(tiers({
   title: 'Layers of protection',
@@ -138,9 +173,10 @@ root.append(tiers({
       ],
     },
     {
-      label: 'AWS', badge: 'Infra', tone: 'app', link: 'every request',
+      label: 'Browser and AWS', badge: 'Infra', tone: 'app', link: 'every request',
       nodes: [
-        { icon: 'cloudfront', title: 'CloudFront only', text: 'The Lambda URL and S3 bucket accept requests from CloudFront alone' },
+        { icon: 'code', title: 'No script injection', text: 'Values shown as text; CSP allows only the site’s own scripts' },
+        { icon: 'cloudfront', title: 'CloudFront only', text: 'The Lambda URL and S3 buckets accept requests from CloudFront alone' },
         { icon: 'filter', title: 'Fixed queries', text: 'Filters are validated; no user-written SQL' },
         { icon: 'budget', title: 'Scan limit', text: 'Each Athena query stops at 1 GB scanned' },
       ],
@@ -148,7 +184,49 @@ root.append(tiers({
   ],
 }));
 
-section('Cost', 'There is nothing to pay for while nobody is looking. CloudFront log delivery, the visitor function, S3 storage and the partitioner cost fractions of a cent per thousand requests. Athena charges per data scanned, and only when the dashboard is open. Logs are kept for one year and then deleted automatically.');
+section('Read more');
+root.append(cards([
+  ['/security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
+  ['https://github.com/dliu-com/traffic-monitor', 'code', 'Source code', 'The CDK stack, Lambdas, functions and these pages', 'Public on GitHub'],
+]));
+
+const details = document.createElement('div');
+function detailList(title, items) {
+  const h3 = document.createElement('h3');
+  h3.textContent = title;
+  const ul = document.createElement('ul');
+  for (const text of items) {
+    const li = document.createElement('li');
+    li.textContent = text;
+    ul.append(li);
+  }
+  details.append(h3, ul);
+}
+detailList('Components', [
+  'One AWS CDK stack (TypeScript) in eu-west-1, plus a few lines in each site’s own stack to attach the shared function and log bucket.',
+  'Visitor ID: a CloudFront Function (cloudfront-js-2.0) on viewer response that sets dl_vid on .dliu.com for one year.',
+  'Log bucket: CloudFront standard logs with cookies, delivered to raw/<site>/ and moved to logs/site=<site>/dt=<day>/ by the partitioner Lambda (Node.js).',
+  'Glue table cloudfront_logs with partition projection over site and day, so no crawler or partition updates are needed.',
+  'Athena workgroup traffic with an enforced 1 GB scan cutoff and 5-minute result reuse.',
+  'Dashboard: static HTML, CSS and JavaScript in a private S3 bucket behind CloudFront; /api/* and /auth/* go to a Node.js Lambda function URL secured with IAM and origin access control.',
+]);
+detailList('Data and retention', [
+  'Each log line has 33 fields; the dashboard uses time, IP, site, method, path, query, status, bytes, user agent, referrer and the dl_vid cookie.',
+  'Visitors are counted by dl_vid, or by IP when the cookie is missing. Requests whose user agent looks like a crawler or script are flagged as bots, left out of visitor and page counts, and hidden in the request list by default.',
+  'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
+  'Sites are listed in config/sites.json; adding a site there adds its partition and dashboard filter.',
+]);
+detailList('Dashboard queries', [
+  'Overview: six queries for totals, requests over time, sites, top pages, external referrers and recent visitors.',
+  'Ranges: last 24 hours, 7, 30, 90 or 365 days, or a custom range of up to 366 days.',
+  'Recent requests: up to 1,000 rows, filterable by site, visitor ID or IP.',
+  'All queries are built from fixed templates; user input is validated against allowlists and strict patterns first.',
+]);
+detailList('Deployment', [
+  'make deploy runs the Jest tests, then cdk deploy; static files are uploaded and the CloudFront cache is cleared.',
+  'Microsoft Entra settings are read from SSM Parameter Store at run time, so the public repository contains no IDs or secrets.',
+]);
+root.append(more('More technical details (text)', details));
 
 const footer = document.createElement('footer');
 footer.textContent = 'Source: dliu-com/traffic-monitor';

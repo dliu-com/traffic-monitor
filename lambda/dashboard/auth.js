@@ -138,7 +138,11 @@ function isAllowed(claims, config) {
 async function finishLogin(event, config, siteUrl, { fetchImpl = fetch, now = Date.now() } = {}) {
   const query = event.queryStringParameters || {};
   const clearAuth = cookie(AUTH_COOKIE, '', 0);
-  if (query.error) return { error: `Sign-in failed: ${query.error}`, status: 401, cookies: [clearAuth] };
+  // Only show well-formed OAuth error codes, so the page cannot be used to display attacker text.
+  if (query.error) {
+    const code = /^[a-z_]{1,64}$/.test(query.error) ? query.error : 'unknown_error';
+    return { error: `Sign-in failed: ${code}`, status: 401, cookies: [clearAuth] };
+  }
 
   const transient = verifySigned(parseCookies(event)[AUTH_COOKIE], sessionKey(config), now);
   if (!transient || !query.state || query.state !== transient.state || !query.code) {

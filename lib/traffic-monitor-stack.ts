@@ -252,7 +252,11 @@ export class TrafficMonitorStack extends Stack {
         strictTransportSecurity: { accessControlMaxAge: Duration.days(365), includeSubdomains: false, override: true },
       },
       customHeadersBehavior: {
-        customHeaders: [{ header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true }],
+        customHeaders: [
+          { header: 'X-Robots-Tag', value: 'noindex, nofollow', override: true },
+          { header: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()', override: true },
+          { header: 'Cross-Origin-Opener-Policy', value: 'same-origin', override: true },
+        ],
       },
     });
 
@@ -265,6 +269,12 @@ export class TrafficMonitorStack extends Stack {
       responseHeadersPolicy: headers,
     };
 
+    const pagesFunction = new cloudfront.Function(this, 'DashboardPagesFunction', {
+      comment: 'Serves /about and /security from their .html files',
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromFile({ filePath: path.join(ROOT, 'functions/dashboard-pages.js') }),
+    });
+
     const distribution = new cloudfront.Distribution(this, 'DashboardDistribution', {
       comment: 'traffic dashboard',
       defaultBehavior: {
@@ -274,6 +284,7 @@ export class TrafficMonitorStack extends Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         responseHeadersPolicy: headers,
         compress: true,
+        functionAssociations: [{ function: pagesFunction, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
         'api/*': lambdaBehavior,
