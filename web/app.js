@@ -42,10 +42,14 @@
     return `${bytes.toFixed(unit ? 1 : 0)} ${units[unit]}`;
   }
 
+  const pad = (n) => String(n).padStart(2, '0');
+  const formatDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const formatClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
   function formatTime(iso) {
     if (!iso) return '';
     const date = new Date(iso);
-    return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? iso : `${formatDate(date)} ${formatClock(date)}`;
   }
 
   // columns: [header, key or fn, className]
@@ -124,8 +128,8 @@
         const label = svgEl('text', { x: x + step / 2, y: height - 6, 'text-anchor': 'middle', class: 'axis' });
         const date = new Date(point.bucket);
         label.textContent = hourly
-          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          ? `${pad(date.getHours())}:${pad(date.getMinutes())}`
+          : formatDate(date);
         svg.append(label);
       }
     });
@@ -189,7 +193,7 @@
       ['Last user agent', 'last_ua', 'ua wrap'],
     ], data.visitors, selectVisitor);
     await loadRequests();
-    setStatus(`Updated ${new Date().toLocaleTimeString()} · logs arrive a few minutes after each request`);
+    setStatus(`Updated ${formatTime(new Date().toISOString())} · logs arrive a few minutes after each request`);
   }
 
   function handleError(error) {
