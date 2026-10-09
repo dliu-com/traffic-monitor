@@ -3,7 +3,7 @@
 const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
-const { BadRequest, overviewQueries, parseFilters, requestsQuery, settings } = require('./queries');
+const { BadRequest, ipQueries, overviewQueries, parseFilters, requestsQuery, settings } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -66,9 +66,9 @@ function createHandler(deps = {}) {
       if (!session) return json(401, { error: 'Not signed in' });
 
       if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
-      if (path === '/api/overview') {
-        const filters = parseFilters(params, clock());
-        const queries = overviewQueries(filters);
+      if (path === '/api/overview' || path === '/api/ip') {
+        const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
+        const queries = path === '/api/ip' ? ipQueries(filters, params.ip) : overviewQueries(filters);
         const names = Object.keys(queries);
         const results = await Promise.all(names.map((name) => query(queries[name])));
         return json(200, { filters, ...Object.fromEntries(names.map((name, i) => [name, results[i]])) });

@@ -1,6 +1,6 @@
 // CloudFront Function (cloudfront-js-2.0), viewer-request on the dashboard's default behavior.
-// Serves the public info pages at clean URLs: /about -> /about.html, /security -> /security.html.
-var PAGES = { '/about': '/about.html', '/security': '/security.html' };
+// Serves pages at clean URLs: /about -> /about.html, /site?site=x -> /site.html, /ip?ip=x -> /ip.html, etc.
+var PAGES = { '/about': '/about.html', '/security': '/security.html', '/site': '/site.html', '/ip': '/ip.html' };
 
 function handler(event) {
   var request = event.request;

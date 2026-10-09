@@ -123,8 +123,8 @@ section('Cost', 'Nothing runs while nobody is visiting, so there is no fixed mon
 
 root.append(stats([
   ['≈ $0.15', 'per month for logging all sites', 'budget'],
-  ['≈ $0.0003', 'per dashboard load (Athena)', 'athena'],
-  ['$0.03', 'worst case per load, capped by the scan limit', 'shield'],
+  ['≈ $0.0004', 'per dashboard page load (Athena)', 'athena'],
+  ['$0.04', 'worst case per load, capped by the scan limit', 'shield'],
 ]));
 
 root.append(table(['Part', 'How it is billed', 'Typical month'], [
@@ -133,7 +133,7 @@ root.append(table(['Part', 'How it is billed', 'Typical month'], [
   ['S3 requests', 'About 11,000 log files a month; each is written once and copied once ($0.005 per 1,000)', { text: '≈ $0.12', className: 'num' }],
   ['S3 storage', 'Gzipped logs of about 25 MB a month, kept for one year', { text: '< $0.01', className: 'num' }],
   ['Partitioner Lambda', 'One short call per log file', { text: '$0 (free tier)', className: 'num' }],
-  ['Athena', '$5 per TB scanned, 10 MB minimum per query; a dashboard load runs 6 queries', { text: '≈ $0.03 for 100 loads', className: 'num' }],
+  ['Athena', '$5 per TB scanned, 10 MB minimum per query; a dashboard page runs 4 to 8 queries', { text: '≈ $0.04 for 100 loads', className: 'num' }],
   ['Dashboard Lambda, CloudFront, Glue, SSM', 'Per request, or free at this size', { text: '$0', className: 'num' }],
 ]));
 root.append(Object.assign(document.createElement('p'), {
@@ -214,12 +214,13 @@ detailList('Data and retention', [
   'Each log line has 33 fields; the dashboard uses time, IP, site, method, path, query, status, bytes, user agent, referrer and the dl_vid cookie.',
   'Visitors are counted by dl_vid, or by IP when the cookie is missing. Requests whose user agent looks like a crawler or script are flagged as bots, left out of visitor and page counts, and hidden in the request list by default.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
-  'Sites are listed in config/sites.json; adding a site there adds its partition and dashboard filter.',
+  'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',
 ]);
 detailList('Dashboard queries', [
-  'Overview: six queries for totals, requests over time, sites, top pages, external referrers and recent visitors.',
+  'All sites page: seven queries for totals, visits over time, per-site totals and sparklines, top pages, external referrers and IP addresses.',
+  'Site page: the same seven queries for one site, plus its request log (up to 1,000 rows).',
+  'IP page: four queries across all sites for that IP: summary, sites visited, other IPs that sent the same dl_vid cookie, and its requests (up to 1,000 rows).',
   'Ranges: last 24 hours, 7, 30, 90 or 365 days, or a custom range of up to 366 days.',
-  'Recent requests: up to 1,000 rows, filterable by site, visitor ID or IP.',
   'All queries are built from fixed templates; user input is validated against allowlists and strict patterns first.',
 ]);
 detailList('Deployment', [

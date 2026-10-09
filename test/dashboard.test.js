@@ -1,4 +1,4 @@
-const { BadRequest, overviewQueries, parseFilters, requestsQuery } = require('../lambda/dashboard/queries');
+const { BadRequest, ipQueries, overviewQueries, parseFilters, requestsQuery } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -38,7 +38,7 @@ describe('sql', () => {
 
   test('overview queries filter partitions and time', () => {
     const queries = overviewQueries(filters, env);
-    expect(Object.keys(queries)).toEqual(['summary', 'timeseries', 'sites', 'pages', 'referrers', 'visitors']);
+    expect(Object.keys(queries)).toEqual(['summary', 'timeseries', 'sites', 'site_series', 'pages', 'referrers', 'ips']);
     for (const sql of Object.values(queries)) {
       expect(sql).toContain(`FROM "traffic"."cloudfront_logs"`);
       expect(sql).toContain(`dt BETWEEN '2026-10-08' AND '2026-10-09'`);
@@ -47,6 +47,22 @@ describe('sql', () => {
     }
     expect(queries.timeseries).toContain("date_trunc('hour', ts)");
     expect(queries.referrers).toContain("'(^|\\.)dliu\\.com$'");
+    expect(queries.site_series).toMatch(/GROUP BY 1, 2/);
+    expect(queries.ips).toMatch(/GROUP BY ip ORDER BY max\(ts\) DESC LIMIT 1000$/);
+    expect(queries.sites).toContain('AS last_visit');
+  });
+
+  test('ip queries cover every site and validate the IP', () => {
+    const queries = ipQueries(filters, '203.0.113.7', env);
+    expect(Object.keys(queries)).toEqual(['summary', 'sites', 'related', 'requests']);
+    for (const sql of Object.values(queries)) {
+      expect(sql).toContain("ip = '203.0.113.7'");
+      expect(sql).not.toContain("AND site = 'cyy'");
+    }
+    expect(queries.related).toContain("NOT ip = '203.0.113.7' AND visitor_id IN (SELECT visitor_id FROM v WHERE ip = '203.0.113.7'");
+    for (const bad of [undefined, '', "1.1.1.1' OR '1'='1", '1.1.1.1;--', '<script>']) {
+      expect(() => ipQueries(filters, bad, env)).toThrow(BadRequest);
+    }
   });
 
   test('requests query validates drill-down inputs', () => {
@@ -99,8 +115,17 @@ describe('handler', () => {
     queries.length = 0;
     const response = await request('/api/overview', { ...signedIn, queryStringParameters: { range: '30d' } });
     expect(response.statusCode).toBe(200);
-    expect(queries).toHaveLength(6);
+    expect(queries).toHaveLength(7);
     expect(JSON.parse(response.body).summary).toEqual([{ n: '1' }]);
+  });
+
+  test('ip view runs its queries across all sites', async () => {
+    queries.length = 0;
+    const response = await request('/api/ip', { ...signedIn, queryStringParameters: { ip: '2001:db8::1', site: 'cyy', range: '7d' } });
+    expect(response.statusCode).toBe(200);
+    expect(queries).toHaveLength(4);
+    expect(JSON.parse(response.body).filters.site).toBe('all');
+    expect((await request('/api/ip', { ...signedIn, queryStringParameters: { ip: "x'" } })).statusCode).toBe(400);
   });
 
   test('bad input is a 400', async () => {

@@ -92,6 +92,7 @@ SELECT count(*) AS requests,
   count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors,
   count(DISTINCT CASE WHEN NOT is_bot THEN visitor_id END) AS cookie_visitors,
   count(DISTINCT ip) AS ips,
+  count(DISTINCT CASE WHEN NOT is_bot THEN ip END) AS human_ips,
   count_if(is_bot) AS bot_requests,
   count_if(status >= 400) AS errors,
   coalesce(sum(bytes), 0) AS bytes
@@ -105,8 +106,14 @@ FROM v GROUP BY 1 ORDER BY 1`,
     sites: `${cte}
 SELECT site, count(*) AS requests,
   count_if(is_page AND NOT is_bot) AS pageviews,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors
-FROM v GROUP BY site ORDER BY requests DESC`,
+  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors,
+  count(DISTINCT CASE WHEN NOT is_bot THEN ip END) AS ips,
+  ${TS('max(CASE WHEN is_page AND NOT is_bot THEN ts END)')} AS last_visit
+FROM v GROUP BY site ORDER BY pageviews DESC, requests DESC`,
+    site_series: `${cte}
+SELECT site, ${TS(`date_trunc('${unit}', ts)`)} AS bucket,
+  count_if(is_page AND NOT is_bot) AS pageviews
+FROM v GROUP BY 1, 2 ORDER BY 1, 2`,
     pages: `${cte}
 SELECT site, path, count(*) AS views, count(DISTINCT visitor) AS visitors
 FROM v WHERE is_page AND NOT is_bot
@@ -116,13 +123,13 @@ SELECT url_extract_host(referrer) AS referrer, count(*) AS views, count(DISTINCT
 FROM v WHERE is_page AND NOT is_bot AND referrer IS NOT NULL
   AND NOT regexp_like(coalesce(url_extract_host(referrer), ''), '${internal}')
 GROUP BY 1 ORDER BY views DESC LIMIT 25`,
-    visitors: `${cte}
-SELECT visitor, max(visitor_id) AS visitor_id, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  count(*) AS requests, count_if(is_page) AS pageviews,
+    ips: `${cte}
+SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip, max_by(ua, ts) AS last_ua
-FROM v WHERE NOT is_bot
-GROUP BY visitor ORDER BY max(ts) DESC LIMIT 50`,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
+  count(DISTINCT visitor_id) AS cookies, max_by(visitor_id, ts) AS visitor_id,
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot
+FROM v GROUP BY ip ORDER BY max(ts) DESC LIMIT 1000`,
   };
 }
 
@@ -146,4 +153,37 @@ FROM v ${where}
 ORDER BY ts DESC LIMIT ${limit}`;
 }
 
-module.exports = { BadRequest, base, overviewQueries, parseFilters, requestsQuery, settings };
+// Everything one IP address did, plus other IPs that sent the same dl_vid cookie (likely the same person).
+function ipQueries(filters, ip, env = process.env) {
+  if (!IP.test(ip || '')) throw new BadRequest('Invalid IP');
+  const cte = base({ ...filters, site: 'all' }, env);
+  const match = `ip = '${ip}'`;
+  return {
+    summary: `${cte}
+SELECT count(*) AS requests, count_if(is_page) AS pageviews,
+  count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
+  array_join(array_sort(array_agg(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL)), ',') AS cookies,
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
+  count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
+FROM v WHERE ${match}`,
+    sites: `${cte}
+SELECT site, count(*) AS requests, count_if(is_page) AS pageviews,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v WHERE ${match}
+GROUP BY site ORDER BY max(ts) DESC`,
+    related: `${cte}
+SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua
+FROM v
+WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
+GROUP BY ip ORDER BY max(ts) DESC LIMIT 100`,
+    requests: `${cte}
+SELECT ${TS('ts')} AS time, site, method, path, status, referrer, ua, visitor_id, result, is_bot, is_page
+FROM v WHERE ${match}
+ORDER BY ts DESC LIMIT 1000`,
+  };
+}
+
+module.exports = { BadRequest, base, ipQueries, overviewQueries, parseFilters, requestsQuery, settings };
