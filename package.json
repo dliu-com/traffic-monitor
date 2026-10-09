@@ -1,0 +1,29 @@
+{
+  "name": "traffic-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Central traffic monitoring for the *.dliu.com CloudFront sites, with a private dashboard at traffic.dliu.com.",
+  "scripts": {
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --ci --require-approval never",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-athena": "^3.700.0",
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/client-ssm": "^3.700.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^24.0.10",
+    "aws-cdk": "^2.1128.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.190.0",
+    "constructs": "^10.4.2",
+    "source-map-support": "^0.5.21"
+  }
+}

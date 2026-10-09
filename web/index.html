@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Traffic · dliu.com</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Traffic</h1>
+    <form id="filters" hidden>
+      <label>Site <select id="site" name="site"><option value="all">All sites</option></select></label>
+      <label>Range
+        <select id="range" name="range">
+          <option value="24h">Last 24 hours</option>
+          <option value="7d" selected>Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="90d">Last 90 days</option>
+          <option value="365d">Last year</option>
+        </select>
+      </label>
+      <button type="submit">Refresh</button>
+    </form>
+    <div id="account" hidden><span id="user"></span> · <a href="/auth/logout">Sign out</a></div>
+  </header>
+
+  <main>
+    <section id="signin" hidden class="center">
+      <p>This dashboard is private.</p>
+      <a class="button" href="/auth/login">Sign in with Microsoft</a>
+    </section>
+
+    <p id="status" role="status"></p>
+
+    <section id="dashboard" hidden>
+      <div id="kpis" class="kpis"></div>
+
+      <div class="card">
+        <h2>Over time <small>bars: requests · line: visitors</small></h2>
+        <div id="chart"></div>
+      </div>
+
+      <div class="grid">
+        <div class="card"><h2>Sites</h2><table id="sites"></table></div>
+        <div class="card"><h2>Top pages</h2><table id="pages"></table></div>
+        <div class="card"><h2>External referrers</h2><table id="referrers"></table></div>
+      </div>
+
+      <div class="card">
+        <h2>Recent visitors <small>click a row to see their requests</small></h2>
+        <table id="visitors" class="clickable"></table>
+      </div>
+
+      <div class="card">
+        <h2 id="requests-title">Recent requests</h2>
+        <div class="toolbar">
+          <label><input type="checkbox" id="hide-bots" checked> Hide bots</label>
+          <label><input type="checkbox" id="pages-only"> Pages only</label>
+          <button type="button" id="clear-visitor" hidden>Show everyone</button>
+        </div>
+        <div class="scroll"><table id="requests"></table></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

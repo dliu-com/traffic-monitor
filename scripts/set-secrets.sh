@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Stores the Microsoft Entra sign-in settings in SSM Parameter Store.
+# Values are read interactively and sent to AWS on stdin, so they never appear in
+# shell history, process arguments, or this repository.
+set -euo pipefail
+
+REGION="${AWS_REGION:-eu-west-1}"
+PREFIX="${PARAMETER_PREFIX:-/traffic-monitor}"
+
+current() {
+  aws ssm get-parameter --region "$REGION" --name "$PREFIX/$1" --query Parameter.Value --output text 2>/dev/null || true
+}
+
+put() { # name type value
+  NAME="$PREFIX/$1" TYPE="$2" VALUE="$3" node -e '
+    process.stdout.write(JSON.stringify({ Name: process.env.NAME, Type: process.env.TYPE, Value: process.env.VALUE, Overwrite: true }));
+  ' | aws ssm put-parameter --region "$REGION" --cli-input-json file:///dev/stdin >/dev/null
+  echo "  saved $PREFIX/$1 ($2)"
+}
+
+prompt() { # var label default
+  local value
+  read -r -p "$2${3:+ [$3]}: " value
+  printf -v "$1" '%s' "${value:-$3}"
+}
+
+echo "Microsoft Entra settings for the traffic dashboard (region $REGION)."
+echo "Press Enter to keep the value shown in brackets."
+prompt TENANT_ID "Directory (tenant) ID" "$(current entra-tenant-id)"
+prompt CLIENT_ID "Application (client) ID" "$(current entra-client-id)"
+read -r -s -p "Client secret VALUE (hidden; Enter to keep current): " CLIENT_SECRET; echo
+prompt ALLOWED "Allowed users (comma-separated emails or object IDs)" "$(current allowed-users || true)"
+
+[[ -n "$TENANT_ID" && -n "$CLIENT_ID" && -n "$ALLOWED" ]] || { echo "Tenant ID, client ID and allowed users are required." >&2; exit 1; }
+
+put entra-tenant-id String "$TENANT_ID"
+put entra-client-id String "$CLIENT_ID"
+put allowed-users String "$ALLOWED"
+if [[ -n "$CLIENT_SECRET" ]]; then
+  put entra-client-secret SecureString "$CLIENT_SECRET"
+elif [[ -z "$(aws ssm get-parameter --region "$REGION" --name "$PREFIX/entra-client-secret" --query Parameter.Name --output text 2>/dev/null || true)" ]]; then
+  echo "No client secret stored yet; run again and enter it." >&2
+  exit 1
+fi
+echo "Done. The dashboard picks up changes within 5 minutes."
