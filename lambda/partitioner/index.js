@@ -24,7 +24,7 @@ function client() {
   return s3Client;
 }
 
-async function handler(event, _context, s3 = client()) {
+async function processEvent(event, s3) {
   const { CopyObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
   for (const record of event.Records || []) {
     const bucket = record.s3.bucket.name;
@@ -43,4 +43,10 @@ async function handler(event, _context, s3 = client()) {
   }
 }
 
-module.exports = { handler, targetKey, decodeKey };
+// Keep the Lambda entry point at one argument: the Node.js runtime treats 3-argument
+// handlers as callback-style and passes the callback as the third argument.
+async function handler(event) {
+  return processEvent(event, client());
+}
+
+module.exports = { handler, processEvent, targetKey, decodeKey };

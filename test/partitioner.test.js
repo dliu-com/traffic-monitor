@@ -1,5 +1,5 @@
 const { CopyObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, targetKey, decodeKey } = require('../lambda/partitioner');
+const { handler, processEvent, targetKey, decodeKey } = require('../lambda/partitioner');
 
 describe('log partitioner', () => {
   test('maps CloudFront log keys to partitioned keys', () => {
@@ -13,6 +13,11 @@ describe('log partitioner', () => {
     expect(targetKey('raw/a/b/E.2026-01-01-00.a.gz')).toBeNull();
   });
 
+  test('lambda entry point is not callback-style', () => {
+    expect(handler.length).toBe(1);
+    expect(require('../lambda/dashboard').handler.length).toBeLessThanOrEqual(1);
+  });
+
   test('decodes S3 event keys', () => {
     expect(decodeKey('raw/cyy/a+b%2Bc.gz')).toBe('raw/cyy/a b+c.gz');
   });
@@ -20,12 +25,12 @@ describe('log partitioner', () => {
   test('copies then deletes each record', async () => {
     const sent = [];
     const s3 = { send: async (command) => { sent.push(command); return {}; } };
-    await handler({
+    await processEvent({
       Records: [
         { s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw/cyy/E1.2026-10-09-23.abc.gz' } } },
         { s3: { bucket: { name: 'logs-bucket' }, object: { key: 'raw/cyy/ignore.txt' } } },
       ],
-    }, {}, s3);
+    }, s3);
     expect(sent).toHaveLength(2);
     expect(sent[0]).toBeInstanceOf(CopyObjectCommand);
     expect(sent[0].input).toEqual({
