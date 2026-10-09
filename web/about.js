@@ -27,7 +27,7 @@ function list(items) {
 
 root.append(stats([
   ['$0 idle', 'no servers; pay per request', 'power'],
-  ['7 sites', 'every *.dliu.com site', 'cloudfront'],
+  ['All sites', 'every *.dliu.com site, one log stream each', 'cloudfront'],
   ['~5 min', 'from visit to dashboard', 'clock'],
   ['1 year', 'of request history', 'chart'],
 ]));
