@@ -1,5 +1,5 @@
 import {
-  $, ago, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el, filters, fmt,
+  $, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el, filters, fmt,
   formatTime, ipLink, isBot, kpis, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, widget,
 } from './dash.js';
 
@@ -70,7 +70,7 @@ const ips = pagedTable({
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
-    { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
     { label: 'Browser', value: (r) => describeUA(r.last_ua), title: (r) => r.last_ua, cls: 'muted' },

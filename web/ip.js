@@ -1,5 +1,5 @@
 import {
-  $, IP_PATTERN, ago, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
+  $, IP_PATTERN, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
   pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
 } from './dash.js';
 
@@ -38,7 +38,7 @@ const related = pagedTable({
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
-    { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Browser', value: (r) => describeUA(r.last_ua), title: (r) => r.last_ua, cls: 'muted' },
@@ -56,7 +56,7 @@ const cookies = pagedTable({
   empty: 'No dl_vid visitor ID was seen from this IP',
   columns: [
     { label: 'Visitor ID', value: (r) => r.visitor_id, cls: 'nowrap' },
-    { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
@@ -116,8 +116,8 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
       ['Country', s.country ? `${countryLabel(s.country)}${countries > 1 ? ` (${countries} countries in this period)` : ''}` : (seen ? 'Not recorded' : ''),
         s.country ? null : 'Country is recorded by CloudFront for requests logged after country logging started'],
       ['Network', s.asn ? `AS${s.asn}` : (seen ? 'Not recorded' : ''), 'The autonomous system (ISP or hosting provider) the IP belongs to'],
-      ['First seen', seen ? `${formatTime(s.first_seen)} (${ago(s.first_seen)})` : ''],
-      ['Last seen', seen ? `${formatTime(s.last_seen)} (${ago(s.last_seen)})` : ''],
+      ['First seen', seen ? formatTime(s.first_seen) : ''],
+      ['Last seen', seen ? formatTime(s.last_seen) : ''],
       ['Latest browser', describeUA(s.last_ua), s.last_ua],
       ['Different browsers', seen ? fmt(s.user_agents) : ''],
       ['Visitor IDs (dl_vid)', seen ? fmt(s.cookies) : ''],

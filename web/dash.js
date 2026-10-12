@@ -98,16 +98,6 @@ export function formatTime(iso) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
-export function ago(iso) {
-  if (!iso) return '';
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (!(minutes >= 0)) return formatTime(iso);
-  if (minutes < 2) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`;
-  if (minutes < 60 * 24 * 60) return `${Math.round(minutes / 1440)} days ago`;
-  return formatTime(iso).slice(0, 10);
-}
 
 // "Chrome on macOS", "Safari on iPhone", "Bot: Googlebot"
 export function describeUA(ua) {

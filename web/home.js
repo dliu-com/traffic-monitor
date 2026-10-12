@@ -1,5 +1,5 @@
 import {
-  $, ago, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el,
+  $, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el,
   filters, fmt, formatTime, handleError, ipLink, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
   sparkline, start, state, widget,
 } from './dash.js';
@@ -26,7 +26,7 @@ const ips = pagedTable({
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
-    { label: 'Last seen', value: (r) => ago(r.last_seen), title: (r) => formatTime(r.last_seen), cls: 'nowrap' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
@@ -56,7 +56,7 @@ function siteCard(key, row, slot) {
     el('span', { class: 'big' }, [fmt(views), el('small', { text: 'page views' })]),
     el('span', { class: 'meta', text: `${fmt(row?.visitors)} visitors · ${fmt(row?.ips)} IPs` }),
     slot,
-    el('span', { class: 'meta', text: row?.last_visit ? `Last visit ${ago(row.last_visit)}` : 'No visits in this period', title: formatTime(row?.last_visit) || null }),
+    el('span', { class: 'meta', text: row?.last_visit ? `Last visit ${formatTime(row.last_visit)}` : 'No visits in this period' }),
   ]);
 }
 
