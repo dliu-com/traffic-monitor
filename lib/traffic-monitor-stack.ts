@@ -6,6 +6,8 @@ import {
   aws_certificatemanager as acm,
   aws_cloudfront as cloudfront,
   aws_cloudfront_origins as origins,
+  aws_events as events,
+  aws_events_targets as eventTargets,
   aws_glue as glue,
   aws_iam as iam,
   aws_lambda as lambda,
@@ -28,6 +30,7 @@ const ROOT = path.join(__dirname, '..');
 export const GLUE_DATABASE = 'traffic';
 export const GLUE_TABLE = 'cloudfront_logs';
 export const ATHENA_WORKGROUP = 'traffic';
+const HOSTING_KEY = 'hosting/asns.json';
 export const PARAMETER_PREFIX = '/traffic-monitor';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
 export const GEO_POLICY_NAME = 'dliu-traffic-geo';
@@ -237,6 +240,7 @@ export class TrafficMonitorStack extends Stack {
         GLUE_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
+        HOSTING_BUCKET: logBucket.bucketName,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
@@ -267,7 +271,29 @@ export class TrafficMonitorStack extends Stack {
       conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
     }));
     logBucket.grantRead(dashboardHandler, 'logs/*');
+    logBucket.grantRead(dashboardHandler, HOSTING_KEY);
     resultsBucket.grantReadWrite(dashboardHandler);
+
+    // Weekly refresh of the cloud/hosting network list (ASNs counted as bots) from public lists.
+    const hostingUpdater = new lambda.Function(this, 'HostingListUpdater', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'hosting.update',
+      code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
+      timeout: Duration.seconds(60),
+      memorySize: 256,
+      description: 'Refreshes the hosting network (ASN) list the dashboard counts as bots',
+      environment: { HOSTING_BUCKET: logBucket.bucketName },
+      logGroup: new logs.LogGroup(this, 'HostingListUpdaterLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    logBucket.grantPut(hostingUpdater, HOSTING_KEY);
+    new events.Rule(this, 'HostingListWeekly', {
+      description: 'Refresh the hosting network list every Monday',
+      schedule: events.Schedule.cron({ weekDay: 'MON', hour: '4', minute: '0' }),
+      targets: [new eventTargets.LambdaFunction(hostingUpdater, { retryAttempts: 2 })],
+    });
 
     const functionUrl = dashboardHandler.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
 
@@ -391,5 +417,6 @@ export class TrafficMonitorStack extends Stack {
     new CfnOutput(this, 'AuthRedirectUri', { value: Fn.join('', [siteUrl, '/auth/callback']) });
     new CfnOutput(this, 'AthenaWorkGroup', { value: workGroup.name });
     new CfnOutput(this, 'DashboardFunctionName', { value: dashboardHandler.functionName });
+    new CfnOutput(this, 'HostingListFunctionName', { value: hostingUpdater.functionName });
   }
 }

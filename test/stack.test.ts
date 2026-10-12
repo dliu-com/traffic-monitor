@@ -199,3 +199,15 @@ test('dashboard Lambda can only read its own SSM parameters', () => {
     },
   });
 });
+
+test('hosting network list is refreshed weekly and readable by the dashboard', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'hosting.update',
+    Environment: { Variables: { HOSTING_BUCKET: Match.anyValue() } },
+  });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(0 4 ? * MON *)' });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'index.handler',
+    Environment: { Variables: Match.objectLike({ HOSTING_BUCKET: Match.anyValue(), GLUE_DATABASE: 'traffic' }) },
+  });
+});

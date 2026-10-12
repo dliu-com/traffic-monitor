@@ -1,4 +1,4 @@
-const { BadRequest, HOSTING_NETWORKS, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -258,6 +258,25 @@ describe('handler', () => {
     Object.assign(process.env, env, { SITE_URL: 'https://traffic.dliu.com' });
   });
 
+  test('networks come from the hosting list, cached by the browser, and feed the bot SQL', async () => {
+    const custom = createHandler({
+      loadConfig: async () => config,
+      runQuery: async (sql) => { queries.push(sql); return [{ n: '1' }]; },
+      loadHosting: async () => ({ 64500: 'Example Cloud' }),
+      now: () => NOW,
+    });
+    const call = (path, extra = {}) => custom({ rawPath: path, requestContext: { http: { method: 'GET' } }, ...extra });
+    expect((await call('/api/networks')).statusCode).toBe(401);
+    const response = await call('/api/networks', signedIn);
+    expect(response.headers['cache-control']).toBe('private, max-age=3600');
+    expect(JSON.parse(response.body)).toEqual({ networks: { 64500: 'Example Cloud' } });
+    queries.length = 0;
+    await call('/api/overview', { ...signedIn, queryStringParameters: { part: 'summary' } });
+    expect(queries[0]).toContain("coalesce(asn IN ('64500'), false)");
+    await request('/api/overview', { ...signedIn, queryStringParameters: { part: 'summary' } });
+    expect(queries[1]).toContain("'16509'");
+  });
+
   test('missing sign-in settings return 503, not 500', async () => {
     const { NotConfigured } = require('../lambda/dashboard/config');
     const unconfigured = createHandler({ loadConfig: async () => { throw new NotConfigured('missing'); }, now: () => NOW });
@@ -276,7 +295,7 @@ describe('handler', () => {
   test('me returns the user and sites', async () => {
     const response = await request('/api/me', signedIn);
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: { root: 'dliu.com', cyy: 'cyy.dliu.com', xiangqi: 'xiangqi.dliu.com' }, hosting: HOSTING_NETWORKS });
+    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: { root: 'dliu.com', cyy: 'cyy.dliu.com', xiangqi: 'xiangqi.dliu.com' } });
   });
 
   test('overview runs all queries', async () => {

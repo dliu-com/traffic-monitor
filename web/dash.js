@@ -49,7 +49,7 @@ export function botToggle(onChange) {
 export const botsNote = () => (includeBots() ? 'Bots are included and highlighted.' : 'Bots are left out; tick Include bots to see them.');
 
 export async function api(path) {
-  if (includeBots() && path.startsWith('/api/') && path !== '/api/me') path += `${path.includes('?') ? '&' : '?'}bots=include`;
+  if (includeBots() && /^\/api\/(overview|ip|page|list)\b/.test(path)) path += `${path.includes('?') ? '&' : '?'}bots=include`;
   const response = await fetch(path, { credentials: 'same-origin', headers: { accept: 'application/json' } });
   if (response.status === 401) {
     const error = new Error('signed out');
@@ -74,9 +74,10 @@ export function handleError(error) {
 
 export async function start(render) {
   try {
-    const me = await api('/api/me');
+    // Network names only label rows, so the page still works without them.
+    const [me, hosting] = await Promise.all([api('/api/me'), api('/api/networks').catch(() => ({}))]);
     state.siteHosts = me.sites || {};
-    state.hosting = me.hosting || {};
+    state.hosting = hosting.networks || {};
     $('user').textContent = me.user;
     $('account').hidden = false;
     $('page').hidden = false;

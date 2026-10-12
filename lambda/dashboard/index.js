@@ -3,17 +3,18 @@
 const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
-const { BadRequest, HOSTING_NETWORKS, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
+const { loadHosting } = require('./hosting');
+const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, useHostingNetworks } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
 };
 
-function json(statusCode, body, cookies) {
+function json(statusCode, body, cookies, headers = {}) {
   return {
     statusCode,
-    headers: { ...SECURITY_HEADERS, 'content-type': 'application/json; charset=utf-8' },
+    headers: { ...SECURITY_HEADERS, 'content-type': 'application/json; charset=utf-8', ...headers },
     ...(cookies ? { cookies } : {}),
     body: JSON.stringify(body),
   };
@@ -40,6 +41,7 @@ function createHandler(deps = {}) {
   const query = deps.runQuery || runQuery;
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
   const clock = deps.now || Date.now;
+  const hosting = deps.loadHosting || loadHosting;
 
   return async function handler(event) {
     const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || 'GET';
@@ -65,7 +67,11 @@ function createHandler(deps = {}) {
       const session = auth.getSession(event, config, clock());
       if (!session) return json(401, { error: 'Not signed in' });
 
-      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts, hosting: HOSTING_NETWORKS });
+      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
+      const networks = await hosting();
+      // Network names for the Browser column; the browser keeps them for an hour (they change weekly).
+      if (path === '/api/networks') return json(200, { networks }, undefined, { 'cache-control': 'private, max-age=3600' });
+      useHostingNetworks(networks);
       if (path === '/api/overview' || path === '/api/ip' || path === '/api/page') {
         const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip)

@@ -1,5 +1,7 @@
 'use strict';
 
+const { BUILT_IN, validAsn } = require('./hosting');
+
 // All user input is validated against strict allowlists/patterns before it is placed in SQL.
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANGE_HOURS = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 };
@@ -20,31 +22,12 @@ const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
 
-// Cloud and hosting networks (by ASN): browsing from these is servers and scripts, not people, so it counts
-// as bots. Networks that also carry real people (Cloudflare WARP, iCloud Private Relay via Akamai/Fastly,
-// Apple) are left out.
-const HOSTING_NETWORKS = {
-  16509: 'Amazon AWS', 14618: 'Amazon AWS', 8987: 'Amazon AWS',
-  15169: 'Google', 396982: 'Google Cloud',
-  8075: 'Microsoft Azure',
-  31898: 'Oracle Cloud',
-  14061: 'DigitalOcean',
-  16276: 'OVHcloud',
-  24940: 'Hetzner', 213230: 'Hetzner',
-  63949: 'Akamai Linode',
-  20473: 'Vultr',
-  51167: 'Contabo',
-  12876: 'Scaleway',
-  8560: 'IONOS',
-  60781: 'Leaseweb', 28753: 'Leaseweb',
-  132203: 'Tencent Cloud', 45090: 'Tencent Cloud',
-  45102: 'Alibaba Cloud', 37963: 'Alibaba Cloud',
-  136907: 'Huawei Cloud', 55990: 'Huawei Cloud',
-  396986: 'ByteDance',
-  398324: 'Censys', 398705: 'Censys',
-  211298: 'Internet Measurement',
-};
-const HOSTING_SQL = Object.keys(HOSTING_NETWORKS).map((asn) => `'${Number(asn)}'`).join(', ');
+// Cloud and hosting networks (by ASN) count as bots; see hosting.js. Only validated numbers reach SQL.
+const hostingSqlFor = (networks) => Object.keys(networks).map(validAsn).filter(Boolean).map((asn) => `'${asn}'`).join(', ') || "''";
+let HOSTING_SQL = hostingSqlFor(BUILT_IN);
+function useHostingNetworks(networks) {
+  HOSTING_SQL = hostingSqlFor(networks);
+}
 
 class BadRequest extends Error {}
 
@@ -383,4 +366,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BadRequest, HOSTING_NETWORKS, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings };
+module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, useHostingNetworks };

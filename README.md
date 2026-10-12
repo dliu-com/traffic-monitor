@@ -107,9 +107,15 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
 - A request is a bot if its user agent is empty, `-`, or looks like a crawler or script, or if its IP belongs to a
-  cloud or hosting network (`HOSTING_NETWORKS` in `lambda/dashboard/queries.js`: AWS, Google, Azure, Oracle, DigitalOcean,
-  OVH, Hetzner, scanners like Censys…). CloudFront itself doesn't flag bots. Networks that also carry people
-  (Cloudflare WARP, iCloud Private Relay) are not on the list. Visitor IDs are worked out before bots are dropped.
+  cloud, hosting or VPN network (by ASN). CloudFront itself doesn't flag bots. Visitor IDs are worked out before bots are dropped.
+- The hosting network list (`lambda/dashboard/hosting.js`, about 950 ASNs) is a built-in core (AWS, Google, Azure,
+  Oracle, DigitalOcean, OVH, Hetzner, Censys…) plus two public lists, [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list)
+  and [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) (datacenter ASNs). The `HostingListUpdater` Lambda
+  downloads them every Monday 04:00 UTC (and after `make deploy`; run it any time with `make update-hosting`),
+  validates and merges them, and saves `hosting/asns.json` in the log bucket. A source that fails or looks too small
+  is skipped, and if the merged list looks wrong nothing is written, so the last copy stays. The dashboard reads the
+  copy at most hourly and falls back to the built-in core. Networks that also carry people (Cloudflare WARP, iCloud
+  Private Relay via Akamai, Fastly and Apple) are excluded in code and always win. People on commercial VPNs count as bots.
 - Country and ASN come from CloudFront itself; requests before the switch to v2 (about 21:00 UTC on 9 Oct 2026)
   have none. City comes from CloudFront too, from about 13:30 UTC on 12 Oct 2026, and only on requests the visitor
   function runs on (not `/api/*` behaviors, nor link.dliu.com, whose viewer-request function answers every request).
