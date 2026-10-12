@@ -21,11 +21,12 @@ const ips = pagedTable({
   list: 'ips',
   params: () => ({ ...scope(), bots: 'hide' }),
   pageSize: 15,
-  placeholder: 'Search IP, site, country, user agent…',
+  placeholder: 'Search IP, site, country, city, user agent…',
   empty: 'No visitors in this period',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
+    { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },

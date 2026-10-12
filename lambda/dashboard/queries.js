@@ -11,6 +11,9 @@ const IP = /^[0-9a-fA-F:.]{2,45}$/;
 const IDENTIFIER = /^[a-z0-9_]+$/;
 // Two-letter country code, or "unknown" for addresses without a country.
 const COUNTRY = /^([A-Z]{2}|unknown)$/;
+// A logged city (decoded from hex UTF-8) must look like a place name: letters, digits, marks,
+// spaces and . ' ’ ( ) , -. Anything else is dropped. The apostrophe is doubled for SQL.
+const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
 
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
@@ -94,7 +97,8 @@ function base(filters, env = process.env) {
       nullif(url_decode(cs_referrer), '-') AS referrer,
       url_decode(cs_user_agent) AS ua,
       regexp_extract(url_decode(cs_cookie), 'dl_vid=([a-z0-9]{8,40})', 1) AS cookie_id,
-      regexp_extract(vid_log, '^([a-z0-9]{8,40})$', 1) AS logged_id,
+      regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|$)', 1) AS logged_id,
+      from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})$', 1))) AS city_raw,
       x_edge_result_type AS result,
       sc_bytes AS bytes,
       nullif(c_country, '-') AS country,
@@ -103,6 +107,7 @@ function base(filters, env = process.env) {
     WHERE dt BETWEEN '${filters.startDay}' AND '${filters.endDay}'${siteFilter}${countryFilter}
   ), w AS (
     SELECT *,
+      CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw END AS city,
       coalesce(cookie_id, CASE WHEN logged_id IS NOT NULL
         AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id
     FROM r${sinceFilter}
@@ -114,6 +119,9 @@ function base(filters, env = process.env) {
     FROM w
   )`;
 }
+
+// Latest known city: requests outside the visitor function (other behaviors, older logs) have none.
+const LAST_CITY = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
 
 const TS = (expr) => `date_format(${expr}, '%Y-%m-%dT%H:%i:%sZ')`;
 
@@ -179,10 +187,10 @@ const LISTS = {
     sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(country, ts) AS country, max_by(asn, ts) AS asn
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
 FROM v GROUP BY ip`,
     where: q.bots === 'hide' ? ['NOT is_bot'] : [],
-    search: ['ip', 'sites', 'last_ua', 'country', 'asn'],
+    search: ['ip', 'sites', 'last_ua', 'country', 'city', 'asn'],
     order: 'last_seen DESC, ip',
   }),
   countries: () => ({
@@ -223,9 +231,9 @@ GROUP BY 1`,
     if (q.bots === 'hide') conditions.push('NOT is_bot');
     if (q.pages === 'only') conditions.push('is_page');
     return {
-      sql: `SELECT ${TS('ts')} AS time, site, ip, country, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
+      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
 FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
-      search: ['site', 'ip', 'country', 'method', 'path', 'status', 'referrer', 'ua'],
+      search: ['site', 'ip', 'country', 'city', 'method', 'path', 'status', 'referrer', 'ua'],
       order: '"time" DESC, ip, path',
     };
   },
@@ -236,11 +244,11 @@ FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       allSites: true,
       sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country
+  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY}
 FROM v
 WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
 GROUP BY ip`,
-      search: ['ip', 'sites', 'last_ua', 'country'],
+      search: ['ip', 'sites', 'last_ua', 'country', 'city'],
       order: 'last_seen DESC, ip',
     };
   },
@@ -281,7 +289,7 @@ function ipQueries(filters, ip, env = process.env) {
   return {
     summary: `${cte}
 SELECT count(*) AS requests, count_if(is_page) AS pageviews,
-  max_by(country, ts) AS country, count(DISTINCT country) AS countries, max_by(asn, ts) AS asn,
+  max_by(country, ts) AS country, count(DISTINCT country) AS countries, ${LAST_CITY}, max_by(asn, ts) AS asn,
   count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
   count(DISTINCT visitor_id) AS cookies,

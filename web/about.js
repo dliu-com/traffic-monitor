@@ -88,7 +88,7 @@ section('What is recorded');
 list([
   ['Time', 'when CloudFront received the request (UTC, shown in your time zone)'],
   ['IP address', 'the address the request came from'],
-  ['Country and network', 'the country and the network (ASN) CloudFront places the IP in; nothing finer, such as a city'],
+  ['Country, city and network', 'the country, city and network (ASN) CloudFront places the IP in; the city is approximate and sometimes missing'],
   ['Visitor', 'the dl_vid ID, or the IP address when there is none (bots and cookie-blocking browsers)'],
   ['Request', 'site, method, path, query string, status code and bytes sent'],
   ['Browser', 'user agent and referrer, used to spot bots and external links'],
@@ -204,8 +204,9 @@ function detailList(title, items) {
   details.append(h3, ul);
 }
 detailList('Components', [
-  'Two AWS CDK stacks (TypeScript): TrafficMonitor in eu-west-1, and TrafficLogDelivery in us-east-1, where CloudFront log deliveries must live. Each site’s own stack only attaches the shared function and keeps cookie logging on.',
-  'Visitor ID: a CloudFront Function (cloudfront-js-2.0) on viewer response that sets dl_vid on .dliu.com for one year and writes the ID into the log with cf.logCustomData.',
+  'Two AWS CDK stacks (TypeScript): TrafficMonitor in eu-west-1, and TrafficLogDelivery in us-east-1, where CloudFront log deliveries must live. Each site’s own stack only attaches the shared function and origin request policy, and keeps cookie logging on.',
+  'City: the shared origin request policy dliu-traffic-geo, on each site’s default behavior, makes CloudFront add its CloudFront-Viewer-City header. The visitor function logs it as <id>.<hex of the UTF-8 name>, since CloudFront escapes other characters in log fields. The header is not part of the cache key, so caching is unchanged.',
+  'Visitor ID: a CloudFront Function (cloudfront-js-2.0) on viewer response that sets dl_vid on .dliu.com for one year and writes the ID into the log with cf.logCustomData, followed by the viewer’s city when the site forwards it.',
   'Log delivery: CloudFront standard logging (v2) for each site’s distribution, writing 36 tab-separated fields (the 33 classic ones plus c-country, asn and viewer-response-log-data) to raw-v2/<site>/YYYY/MM/DD/.',
   'Log bucket: the partitioner Lambda (Node.js) reorders each file’s columns by its #Fields header, gzips it into logs/site=<site>/dt=<day>/ and deletes the raw file. Only the log delivery service of this account may write to raw-v2/.',
   'Glue table cloudfront_logs with partition projection over site and day, so no crawler or partition updates are needed.',
@@ -213,8 +214,8 @@ detailList('Components', [
   'Dashboard: static HTML, CSS and JavaScript in a private S3 bucket behind CloudFront; /api/* and /auth/* go to a Node.js Lambda function URL secured with IAM and origin access control.',
 ]);
 detailList('Data and retention', [
-  'Each log line has 36 fields; the dashboard uses time, IP, country, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
-  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown.',
+  'Each log line has 36 fields; the dashboard uses time, IP, country, city, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
+  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs); others have no city.',
   'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. Requests whose user agent looks like a crawler or script are flagged as bots, left out of visitor and page counts, and hidden in the request list by default.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
   'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',
@@ -224,7 +225,7 @@ detailList('Dashboard queries', [
   'All sites page: seven queries for totals, visits over time, countries, the country filter list, per-site totals, per-site sparklines and IP addresses.',
   'Site page: eight queries for one site: totals, visits over time, countries, the country filter list, top pages, external referrers, IP addresses and its request log.',
   'Country filter: choosing a country (or clicking one in the Countries table) narrows every widget on the All sites and Site pages to that country; it is kept in the link as ?country=. The IP page always shows everything the IP did.',
-  'IP page: five queries across all sites for that IP: summary (with country and network), sites visited, its dl_vid IDs, other IPs with the same ID, and its requests.',
+  'IP page: five queries across all sites for that IP: summary (with country, city and network), sites visited, its dl_vid IDs, other IPs with the same ID, and its requests.',
   'Tables are paged in Athena: only the rows on screen are fetched (at most 100 per call), with a total count. Search and "Show more" run a new query instead of filtering rows already downloaded.',
   'Ranges: last 1 or 12 hours, 24 hours, 7, 30, 90 or 365 days, or a custom period of up to 366 days typed as YYYY-MM-DD HH:MM in your local time. Charts use minutes up to 3 hours, hours up to 3 days and days beyond that.',
   'All queries are built from fixed templates; user input is validated against allowlists and strict patterns first.',

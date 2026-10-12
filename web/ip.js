@@ -33,11 +33,12 @@ const related = pagedTable({
   list: 'related',
   params: scope,
   pageSize: 10,
-  placeholder: 'Search IP, site, user agent…',
+  placeholder: 'Search IP, site, city, user agent…',
   empty: 'None — this cookie was only seen on this IP',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
+    { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
@@ -115,6 +116,8 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
     facts([
       ['Country', s.country ? `${countryLabel(s.country)}${countries > 1 ? ` (${countries} countries in this period)` : ''}` : (seen ? 'Not recorded' : ''),
         s.country ? null : 'Country is recorded by CloudFront for requests logged after country logging started'],
+      ['City', s.city || (seen ? 'Not recorded' : ''),
+        s.city ? 'Latest city CloudFront placed this IP in (approximate)' : 'City is recorded by CloudFront for requests logged after city logging started'],
       ['Network', s.asn ? `AS${s.asn}` : (seen ? 'Not recorded' : ''), 'The autonomous system (ISP or hosting provider) the IP belongs to'],
       ['First seen', seen ? formatTime(s.first_seen) : ''],
       ['Last seen', seen ? formatTime(s.last_seen) : ''],

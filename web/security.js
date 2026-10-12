@@ -98,7 +98,7 @@ root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['Request floods run up the bill', LOW, 'Queries need sign-in; each query stops at 1 GB scanned; repeat queries reuse results for 5 minutes; unauthenticated calls return 401 cheaply'],
   ['Secrets leak through the public repository', LOW, 'The client secret, tenant and client IDs live in encrypted SSM parameters read at run time; git history scanned'],
   ['Someone writes forged log files into the log bucket to plant fake visits', LOW, 'The bucket policy lets only the log delivery service write, only to raw-v2/, only for delivery sources in this account (aws:SourceAccount and aws:SourceArn); the partitioner only accepts files under raw-v2/<site>/YYYY/MM/DD/ and rewrites their columns by name'],
-  ['The logged visitor ID or country is used to attack the dashboard', LOW, 'The ID is written by our own function after it checks the format; queries accept it only if it is 8 to 40 lowercase letters and digits, the ASN only if it is digits; countries come from CloudFront and are shown with textContent'],
+  ['The logged visitor ID, country or city is used to attack the dashboard', LOW, 'The ID is written by our own function after it checks the format; queries accept it only if it is 8 to 40 lowercase letters and digits, the ASN only if it is digits; the city is logged as hex and kept only if it decodes to letters, digits, spaces and . \' ’ ( ) , - (at most 60); countries and cities come from CloudFront and are shown with textContent'],
   ['Logged IP addresses and visitor IDs are exposed', MEDIUM, 'Only the admin can query them; buckets are private and encrypted; raw logs deleted after 7 days, sorted logs after 1 year'],
 ]));
 
@@ -107,7 +107,7 @@ const risks = document.createElement('ul');
 for (const text of [
   'There is no WAF or rate limit. Unauthenticated calls to /api or /auth still start the Lambda, which answers 401 for a tiny cost.',
   'Visitor IDs are not cryptographically random and anyone can set their own dl_vid. They are for counting visitors, not for security.',
-  'Logs contain IP addresses, visitor IDs and the country and network of each IP (personal data) for up to one year.',
+  'Logs contain IP addresses, visitor IDs and the country, city and network of each IP (personal data) for up to one year.',
   'Sessions cannot be revoked on the server; a stolen cookie works until it expires (at most 12 hours).',
   'Sign-out is a plain link, so another site could sign the admin out. Nothing else can be triggered that way.',
   'Unknown pages return 403 rather than 404, because the bucket does not allow listing.',

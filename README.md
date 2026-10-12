@@ -7,12 +7,14 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
 - **Identify visitors** – a shared CloudFront Function (`dliu-visitor-id`, viewer-response) sets a first-party
   `dl_vid` cookie on `.dliu.com`, so the same visitor is recognised across all subdomains. It also writes the ID
   into the log line (`cf.logCustomData`), so a visitor's first request, sent before they had the cookie, counts under the same ID.
+  When the site attaches the shared `dliu-traffic-geo` origin request policy, CloudFront adds `CloudFront-Viewer-City`
+  and the function logs `<id>.<hex of the UTF-8 city>` (hex, because CloudFront escapes other characters in log fields).
 - **Query** – a partitioner Lambda puts each file's columns in a fixed order and moves it into `logs/site=<site>/dt=<date>/`;
   Glue + Athena (partition projection) query them.
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
   - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
-  - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country and network), plus other IPs with the same `dl_vid`.
+  - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites and Site pages; click a country in the Countries table to apply it.
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
   - Every widget loads on its own (`/api/overview` and `/api/ip` take `part=`), with a spinner until its data arrives.
@@ -65,19 +67,23 @@ Renew the client secret before it expires and re-run `make set-secrets`.
 1. Add the site's key and host to `config/sites.json`, its CloudFront distribution ID to the gitignored
    `config/distributions.local.json` (format: `config/distributions.example.json`), and run `make deploy`;
    this creates its log delivery to `raw-v2/<site-key>/`.
-2. In the site's CDK stack (same account/region), attach the visitor function and turn on cookie logging
-   (without a legacy log bucket):
+2. In the site's CDK stack (same account/region), attach the visitor function and the city policy, and turn on
+   cookie logging (without a legacy log bucket):
 
 ```js
 const visitorId = cloudfront.Function.fromFunctionAttributes(this, 'VisitorId', {
   functionArn: cdk.Fn.importValue('TrafficVisitorFunctionArn'),
   functionName: 'dliu-visitor-id',
 });
+// Makes CloudFront add CloudFront-Viewer-City so the function can log the city (not in the cache key).
+const trafficGeo = cloudfront.OriginRequestPolicy.fromOriginRequestPolicyId(
+  this, 'TrafficGeo', cdk.Fn.importValue('TrafficGeoOriginRequestPolicyId'));
 
 const distribution = new cloudfront.Distribution(this, 'Distribution', {
   // ...existing props
   defaultBehavior: {
     // ...existing props
+    originRequestPolicy: trafficGeo, // only if the behavior has no origin request policy yet
     functionAssociations: [
       // ...existing associations
       { eventType: cloudfront.FunctionEventType.VIEWER_RESPONSE, function: visitorId },
@@ -97,7 +103,9 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
 - Country and ASN come from CloudFront itself; requests before the switch to v2 (about 21:00 UTC on 9 Oct 2026)
-  have none.
+  have none. City comes from CloudFront too, from about 13:30 UTC on 12 Oct 2026, and only on requests the visitor
+  function runs on (not `/api/*` behaviors, nor link.dliu.com, whose viewer-request function answers every request).
+  Queries keep a city only if it decodes to letters, digits, spaces and `.'’(),-` (at most 60 characters).
 - Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
   are deleted, since v2 already has those requests. The overlap hour was cleaned with
   `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.

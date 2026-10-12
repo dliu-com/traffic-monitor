@@ -53,6 +53,26 @@ describe('visitor-id CloudFront function', () => {
     expect(logged[2]).toMatch(/^[a-z0-9]+$/);
   });
 
+  test('logs the viewer city after the id as hex UTF-8', () => {
+    const withCity = (value, cookies = { dl_vid: { value: 'abc123def456' } }) => {
+      const e = event('cyy.dliu.com', cookies);
+      e.request.headers['cloudfront-viewer-city'] = { value };
+      logged.length = 0;
+      handler(e);
+      return logged[0];
+    };
+    const hex = (text) => Buffer.from(text, 'utf8').toString('hex');
+    expect(withCity('Dublin')).toBe(`abc123def456.${hex('Dublin')}`);
+    expect(withCity('New York')).toBe(`abc123def456.${hex('New York')}`);
+    expect(withCity('S%C3%A3o Paulo')).toBe(`abc123def456.${hex('São Paulo')}`);
+    expect(withCity('%E4%B8%8A%E6%B5%B7')).toBe(`abc123def456.${hex('上海')}`);
+    expect(withCity("a|b<script>'%")).toBe(`abc123def456.${hex("a|b<script>'%")}`);
+    expect(withCity('x'.repeat(500))).toBe(`abc123def456.${hex('x'.repeat(60))}`);
+    expect(withCity('')).toBe('abc123def456');
+    expect(withCity('Paris', {})).toMatch(new RegExp(`^[a-z0-9]{8,40}\\.${hex('Paris')}$`));
+    expect(withCity('\ud800')).toBe('abc123def456');
+  });
+
   test('replaces a malformed cookie', () => {
     const response = handler(event('cyy.dliu.com', { dl_vid: { value: 'bad value;' } }));
     expect(response.cookies.dl_vid.value).toMatch(/^[a-z0-9]+$/);

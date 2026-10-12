@@ -102,11 +102,22 @@ describe('sql', () => {
   test('visitor id is the cookie, or the logged id once the browser sent it back', () => {
     const sql = overviewQueries(filters, env).summary;
     expect(sql).toContain("regexp_extract(url_decode(cs_cookie), 'dl_vid=([a-z0-9]{8,40})', 1) AS cookie_id");
-    expect(sql).toContain("regexp_extract(vid_log, '^([a-z0-9]{8,40})$', 1) AS logged_id");
+    expect(sql).toContain("regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|$)', 1) AS logged_id");
     expect(sql).toContain('bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id');
     expect(sql).toMatch(/FROM r\n    WHERE ts >= [^\n]+\n  \), v AS/);
     expect(sql).toContain("CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn");
     expect(sql).not.toMatch(/--/);
+  });
+
+  test('city comes from the logged data, well-formed and validated', () => {
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).toContain("from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})$', 1))) AS city_raw");
+    expect(sql).toContain("CASE WHEN regexp_like(city_raw, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN city_raw END AS city");
+    const last = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
+    expect(ipQueries(filters, '203.0.113.7', env).summary).toContain(last);
+    for (const list of ['ips', 'related']) expect(listQuery(filters, { list, ip: '203.0.113.7' }, env).sql).toContain(last);
+    expect(listQuery(filters, { list: 'requests' }, env).sql).toContain('ip, country, city, visitor_id');
+    expect(listQuery(filters, { list: 'ips', q: 'São Paulo' }, env).sql).toContain("coalesce(cast(city AS varchar), '')");
   });
 
   test('ip summary and ip list include the network (ASN)', () => {

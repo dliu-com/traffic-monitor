@@ -30,6 +30,7 @@ export const GLUE_TABLE = 'cloudfront_logs';
 export const ATHENA_WORKGROUP = 'traffic';
 export const PARAMETER_PREFIX = '/traffic-monitor';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
+export const GEO_POLICY_NAME = 'dliu-traffic-geo';
 
 // CloudFront standard (legacy) access log fields, in file order.
 export const LOG_COLUMNS: Array<[string, string]> = [
@@ -141,6 +142,16 @@ export class TrafficMonitorStack extends Stack {
       comment: 'Sets the dl_vid visitor cookie for traffic monitoring',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromInline(visitorCode),
+    });
+    // CloudFront only adds CloudFront-Viewer-City to a request (and so to the visitor function's
+    // event) when a policy on the behavior names it. Sites attach this to their default behavior.
+    // Not part of the cache key, so caching is unaffected.
+    const geoPolicy = new cloudfront.OriginRequestPolicy(this, 'GeoOriginRequestPolicy', {
+      originRequestPolicyName: GEO_POLICY_NAME,
+      comment: 'Adds CloudFront-Viewer-City so the visitor function can log the city',
+      headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList('CloudFront-Viewer-City'),
+      cookieBehavior: cloudfront.OriginRequestCookieBehavior.none(),
+      queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.none(),
     });
 
     // ---------- Query layer ----------
@@ -368,6 +379,11 @@ export class TrafficMonitorStack extends Stack {
       value: visitorFunction.functionArn,
       exportName: 'TrafficVisitorFunctionArn',
       description: 'CloudFront Function to attach at viewer-response on each site default behavior.',
+    });
+    new CfnOutput(this, 'TrafficGeoOriginRequestPolicyId', {
+      value: geoPolicy.originRequestPolicyId,
+      exportName: 'TrafficGeoOriginRequestPolicyId',
+      description: 'Origin request policy to attach on each site default behavior so the visitor function can log the city.',
     });
     new CfnOutput(this, 'DashboardUrl', { value: siteUrl });
     new CfnOutput(this, 'AuthRedirectUri', { value: Fn.join('', [siteUrl, '/auth/callback']) });
