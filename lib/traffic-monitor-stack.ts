@@ -356,6 +356,8 @@ export class TrafficMonitorStack extends Stack {
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
+      // Browsers revalidate on every load (a 304 when unchanged), so a deploy shows up at once.
+      cacheControl: [s3deploy.CacheControl.noCache()],
     });
 
     new route53.ARecord(this, 'DashboardAliasRecord', {

@@ -26,6 +26,24 @@ test('exports the log bucket and visitor function for the sites', () => {
   template.hasOutput('TrafficVisitorFunctionArn', { Export: { Name: 'TrafficVisitorFunctionArn' } });
 });
 
+test('shares an origin request policy that adds only the viewer city', () => {
+  template.hasOutput('TrafficGeoOriginRequestPolicyId', { Export: { Name: 'TrafficGeoOriginRequestPolicyId' } });
+  template.hasResourceProperties('AWS::CloudFront::OriginRequestPolicy', {
+    OriginRequestPolicyConfig: Match.objectLike({
+      Name: 'dliu-traffic-geo',
+      HeadersConfig: { HeaderBehavior: 'whitelist', Headers: ['CloudFront-Viewer-City'] },
+      CookiesConfig: { CookieBehavior: 'none' },
+      QueryStringsConfig: { QueryStringBehavior: 'none' },
+    }),
+  });
+});
+
+test('dashboard files are revalidated on every load so deploys show at once', () => {
+  template.hasResourceProperties('Custom::CDKBucketDeployment', {
+    SystemMetadata: { 'cache-control': 'no-cache' },
+  });
+});
+
 test('visitor function is a named cloudfront-js-2.0 function', () => {
   template.hasResourceProperties('AWS::CloudFront::Function', {
     Name: 'dliu-visitor-id',
