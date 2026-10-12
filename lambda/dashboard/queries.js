@@ -2,7 +2,7 @@
 
 // All user input is validated against strict allowlists/patterns before it is placed in SQL.
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGE_HOURS = { '1h': 1, '12h': 12, '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24, '365d': 365 * 24 };
+const RANGE_HOURS = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 };
 const MAX_CUSTOM_DAYS = 366;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$/;

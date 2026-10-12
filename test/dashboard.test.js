@@ -15,9 +15,9 @@ describe('filters', () => {
       .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour', bots: 'hide' });
   });
 
-  test('1 and 12 hour ranges', () => {
-    expect(parseFilters({ range: '1h' }, NOW, env)).toMatchObject({ startDay: '2026-10-09', since: '2026-10-09 11:30:00', unit: 'minute' });
-    expect(parseFilters({ range: '12h' }, NOW, env)).toMatchObject({ since: '2026-10-09 00:30:00', unit: 'hour' });
+  test('only 24h, 7d, 30d and 90d ranges', () => {
+    expect(parseFilters({ range: '90d' }, NOW, env)).toMatchObject({ startDay: '2026-07-12', unit: 'day' });
+    for (const range of ['1h', '12h', '365d', 'nope']) expect(() => parseFilters({ range }, NOW, env)).toThrow(BadRequest);
   });
 
   test('custom ranges with times', () => {
@@ -308,10 +308,10 @@ describe('handler', () => {
 
   test('part runs a single query', async () => {
     queries.length = 0;
-    const response = await request('/api/overview', { ...signedIn, queryStringParameters: { range: '1h', part: 'timeseries' } });
+    const response = await request('/api/overview', { ...signedIn, queryStringParameters: { range: '24h', part: 'timeseries' } });
     expect(queries).toHaveLength(1);
-    expect(queries[0]).toContain("date_trunc('minute', ts)");
-    expect(JSON.parse(response.body)).toMatchObject({ filters: { unit: 'minute' }, rows: [{ n: '1' }] });
+    expect(queries[0]).toContain("date_trunc('hour', ts)");
+    expect(JSON.parse(response.body)).toMatchObject({ filters: { unit: 'hour' }, rows: [{ n: '1' }] });
     for (const part of ['nope', '__proto__', 'constructor', '']) {
       expect((await request('/api/overview', { ...signedIn, queryStringParameters: { part } })).statusCode).toBe(400);
     }

@@ -8,7 +8,7 @@ export const fmt = (value) => number.format(Number(value) || 0);
 export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGES = [['1h', '1 hour'], ['12h', '12 hours'], ['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days'], ['365d', '1 year']];
+const RANGES = [['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']];
 const MAX_CUSTOM_DAYS = 366;
 const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java\/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse/i;
 

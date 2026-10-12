@@ -228,7 +228,7 @@ detailList('Dashboard queries', [
   'Page page (click a page in Top pages): five queries for one path on one site: totals, views over time, its visitors, its IP addresses and its requests.',
   'IP page: five queries across all sites for that IP: summary (with country, city and network), sites visited, its dl_vid IDs, other IPs with the same ID, and its requests.',
   'Tables are paged in Athena: only the rows on screen are fetched (at most 100 per call), with a total count. Search and "Show more" run a new query instead of filtering rows already downloaded.',
-  'Ranges: last 1 or 12 hours, 24 hours, 7, 30, 90 or 365 days, or a custom period of up to 366 days typed as YYYY-MM-DD HH:MM in your local time. Charts use minutes up to 3 hours, hours up to 3 days and days beyond that.',
+  'Ranges: last 24 hours, 7, 30 or 90 days, or a custom period of up to 366 days typed as YYYY-MM-DD HH:MM in your local time. Charts use minutes up to 3 hours, hours up to 3 days and days beyond that.',
   'All queries are built from fixed templates; user input is validated against allowlists and strict patterns first.',
 ]);
 detailList('Deployment', [
