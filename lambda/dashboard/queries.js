@@ -8,6 +8,8 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$/;
 const VISITOR_ID = /^[a-z0-9]{8,40}$/;
 const IP = /^[0-9a-fA-F:.]{2,45}$/;
+// A page path as logged (URL-decoded): starts with "/", no control characters.
+const PAGE_PATH = /^\/[^\u0000-\u001f\u007f]{0,1000}$/u;
 const IDENTIFIER = /^[a-z0-9_]+$/;
 // Two-letter country code, or "unknown" for addresses without a country.
 const COUNTRY = /^([A-Z]{2}|unknown)$/;
@@ -182,6 +184,13 @@ function requireIp(ip) {
   return `ip = '${ip}'`;
 }
 
+// The path is free text, so besides the pattern check its quotes are doubled (the only escape in a
+// Trino string literal).
+function requirePath(value) {
+  if (typeof value !== 'string' || !PAGE_PATH.test(value)) throw new BadRequest('Invalid page path');
+  return `path = '${value.replace(/'/g, "''")}'`;
+}
+
 const LISTS = {
   ips: (q) => ({
     sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
@@ -228,6 +237,7 @@ GROUP BY 1`,
       conditions.push(`visitor_id = '${q.visitor}'`);
     }
     if (q.ip) conditions.push(requireIp(q.ip));
+    if (q.path !== undefined) conditions.push(requirePath(q.path));
     if (q.bots === 'hide') conditions.push('NOT is_bot');
     if (q.pages === 'only') conditions.push('is_page');
     return {
@@ -237,6 +247,24 @@ FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       order: '"time" DESC, ip, path',
     };
   },
+  // The people who viewed one page, newest first. Bots are never visitors.
+  page_visitors: (q) => ({
+    sql: `SELECT visitor, max(visitor_id) AS visitor_id, count(*) AS views, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
+  max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua
+FROM v WHERE is_page AND NOT is_bot AND ${requirePath(q.path)}
+GROUP BY visitor`,
+    search: ['visitor_id', 'last_ip', 'country', 'city', 'last_ua'],
+    order: 'last_seen DESC, visitor',
+  }),
+  // The IP addresses one page was viewed from.
+  page_ips: (q) => ({
+    sql: `SELECT ip, count(*) AS views, count(DISTINCT visitor) AS visitors, max_by(country, ts) AS country, ${LAST_CITY},
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot
+FROM v WHERE is_page AND ${requirePath(q.path)}${q.bots === 'hide' ? ' AND NOT is_bot' : ''}
+GROUP BY ip`,
+    search: ['ip', 'country', 'city', 'last_ua'],
+    order: 'last_seen DESC, ip',
+  }),
   // Other IPs that used a visitor ID also seen on this IP (likely the same person).
   related: (q) => {
     const match = requireIp(q.ip);
@@ -304,4 +332,21 @@ GROUP BY site ORDER BY max(ts) DESC`,
   };
 }
 
-module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, parseFilters, settings };
+// Summary and chart of one page on one site (bots left out, as in Top pages).
+function pageQueries(filters, pagePath, env = process.env) {
+  if (filters.site === 'all') throw new BadRequest('Choose a site');
+  const match = `is_page AND NOT is_bot AND ${requirePath(pagePath)}`;
+  const cte = base(filters, env);
+  const unit = ['minute', 'hour', 'day'].includes(filters.unit) ? filters.unit : 'day';
+  return {
+    summary: `${cte}
+SELECT count(*) AS views, count(DISTINCT visitor) AS visitors, count(DISTINCT ip) AS ips,
+  count(DISTINCT country) AS countries, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v WHERE ${match}`,
+    timeseries: `${cte}
+SELECT ${TS(`date_trunc('${unit}', ts)`)} AS bucket, count(*) AS views, count(DISTINCT visitor) AS visitors
+FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
+  };
+}
+
+module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings };

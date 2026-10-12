@@ -13,11 +13,12 @@ describe('dashboard-pages CloudFront function', () => {
     ['/security/', '/security.html'],
     ['/site', '/site.html'],
     ['/ip/', '/ip.html'],
+    ['/page', '/page.html'],
   ])('maps %s to %s', (uri, expected) => {
     expect(uriFor(uri)).toBe(expected);
   });
 
-  test.each(['/', '/about.html', '/home.js', '/ips', '/api/me', '/auth/login', '/abouts', '/constructor', '/__proto__'])('leaves %s alone', (uri) => {
+  test.each(['/', '/about.html', '/home.js', '/ips', '/pages', '/api/me', '/auth/login', '/abouts', '/constructor', '/__proto__'])('leaves %s alone', (uri) => {
     expect(uriFor(uri)).toBe(uri);
   });
 });

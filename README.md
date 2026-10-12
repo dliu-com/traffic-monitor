@@ -14,10 +14,11 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
   - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
+  - `/page?site=<key>&path=<path>` **Page** – one page's views over time, its visitors, IP addresses and requests (the **Details** link in Top pages). Page names in Top pages link to the live page, and the page and request searches accept a full URL.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
-  - A country filter (`?country=GB`, or `unknown`) narrows the All sites and Site pages; click a country in the Countries table to apply it.
+  - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
-  - Every widget loads on its own (`/api/overview` and `/api/ip` take `part=`), with a spinner until its data arrives.
+  - Every widget loads on its own (`/api/overview`, `/api/page` and `/api/ip` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
 - **About** – `https://traffic.dliu.com/about`, public diagrams of the architecture, sign-in flow, cost and security.
 - **Security** – `https://traffic.dliu.com/security`, the threat model, live penetration-test results and accepted risks.

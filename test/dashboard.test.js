@@ -1,4 +1,4 @@
-const { BadRequest, base, ipQueries, listQuery, overviewQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -180,6 +180,35 @@ describe('sql', () => {
   });
 });
 
+describe('page details', () => {
+  const filters = parseFilters({ site: 'cyy', range: '7d' }, NOW, env);
+
+  test('page lists and queries match one exact path, quotes escaped', () => {
+    for (const list of ['page_visitors', 'page_ips']) {
+      const { sql } = listQuery(filters, { list, path: "/game/it's 围棋" }, env);
+      expect(sql).toContain("is_page AND");
+      expect(sql).toContain("path = '/game/it''s 围棋'");
+      expect(sql).toContain("AND site = 'cyy'");
+    }
+    expect(listQuery(filters, { list: 'page_visitors', path: '/a' }, env).sql).toContain('is_page AND NOT is_bot AND');
+    expect(listQuery(filters, { list: 'page_ips', path: '/a' }, env).sql).not.toContain('NOT is_bot');
+    expect(listQuery(filters, { list: 'page_ips', path: '/a', bots: 'hide' }, env).sql).toContain("path = '/a' AND NOT is_bot");
+    expect(listQuery(filters, { list: 'requests', path: '/a' }, env).sql).toContain("WHERE path = '/a'");
+    const { summary, timeseries } = pageQueries(filters, '/game/1', env);
+    expect(summary).toContain("WHERE is_page AND NOT is_bot AND path = '/game/1'");
+    expect(timeseries).toContain("date_trunc('day', ts)");
+  });
+
+  test('page path must be a logged path', () => {
+    for (const path of [undefined, '', 'game/1', 'https://cyy.dliu.com/', '/a\nb', '/a\u0000', `/${'x'.repeat(1001)}`]) {
+      expect(() => listQuery(filters, { list: 'page_ips', path }, env)).toThrow(BadRequest);
+      expect(() => pageQueries(filters, path, env)).toThrow(BadRequest);
+    }
+    expect(() => listQuery(filters, { list: 'requests', path: 'x' }, env)).toThrow(BadRequest);
+    expect(() => pageQueries(parseFilters({}, NOW, env), '/a', env)).toThrow(BadRequest);
+  });
+});
+
 describe('handler', () => {
   const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
   const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
@@ -232,6 +261,16 @@ describe('handler', () => {
     expect(queries).toHaveLength(2);
     expect(JSON.parse(response.body).filters.site).toBe('all');
     expect((await request('/api/ip', { ...signedIn, queryStringParameters: { ip: "x'" } })).statusCode).toBe(400);
+  });
+
+  test('page view runs its queries for one site and path', async () => {
+    queries.length = 0;
+    const response = await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: '/game/1', range: '7d' } });
+    expect(response.statusCode).toBe(200);
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).toContain("path = '/game/1'");
+    expect((await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: 'nope' } })).statusCode).toBe(400);
+    expect((await request('/api/page', { ...signedIn, queryStringParameters: { path: '/a' } })).statusCode).toBe(400);
   });
 
   test('part runs a single query', async () => {

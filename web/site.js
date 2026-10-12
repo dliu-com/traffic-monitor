@@ -1,6 +1,6 @@
 import {
   $, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el, filters, fmt,
-  formatTime, ipLink, isBot, kpis, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, widget,
+  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, siteUrl, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -31,12 +31,14 @@ const pages = pagedTable({
   list: 'pages',
   params: scope,
   pageSize: 10,
-  placeholder: 'Search pages…',
+  placeholder: 'Search pages or paste a URL…',
   empty: 'No page views',
+  searchUrls: true,
   columns: [
-    { label: 'Page', value: (r) => r.path, cls: 'wrap' },
+    { label: 'Page', value: (r) => r.path, href: (r) => siteUrl(site, r.path), external: true, title: () => 'Open this page ↗', cls: 'wrap' },
     { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
     { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+    { label: '', value: () => 'Details', href: (r) => pageDetailsLink(site, r.path), external: true, title: () => 'Visitors and IP addresses of this page', cls: 'nowrap' },
   ],
 });
 pagesCard.head.append(pages.search);
@@ -88,8 +90,9 @@ const log = pagedTable({
   list: 'requests',
   params: () => ({ ...scope(), ...(hideBots.input.checked ? { bots: 'hide' } : {}), ...(pagesOnly.input.checked ? { pages: 'only' } : {}) }),
   pageSize: 20,
-  placeholder: 'Search path, IP, city, status, user agent…',
+  placeholder: 'Search path, URL, IP, city, status, user agent…',
   empty: 'No requests',
+  searchUrls: true,
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
     { label: 'Time', value: (r) => formatTime(r.time), cls: 'nowrap' },

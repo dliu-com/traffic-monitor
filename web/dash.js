@@ -136,6 +136,27 @@ export function pageLink(path, params = {}) {
 }
 export const siteLink = (site) => pageLink('/site', { site });
 export const ipLink = (ip) => pageLink('/ip', { ip });
+export const pageDetailsLink = (site, path) => pageLink('/page', { site, path });
+
+// The live address of a logged path on a site, or null if it cannot be one.
+export function siteUrl(site, path) {
+  const host = state.siteHosts[site];
+  if (!host || typeof path !== 'string' || !path.startsWith('/')) return null;
+  const url = new URL(`https://${host}/`);
+  url.pathname = path;
+  return url.origin === `https://${host}` ? url.href : null;
+}
+
+// A pasted address (https://site/path?query) searched as its path, the way paths are logged.
+export function urlPath(text) {
+  if (!/^https?:\/\/\S+$/i.test(text)) return text;
+  try {
+    const { pathname } = new URL(text);
+    try { return decodeURIComponent(pathname); } catch { return pathname; }
+  } catch {
+    return text;
+  }
+}
 
 function setPeriod(next) {
   const q = new URLSearchParams(location.search);
@@ -378,7 +399,8 @@ function tableBody(table, columns, rows, empty, rowClass) {
       const text = value == null ? '' : String(value);
       const href = column.href && text ? column.href(row) : null;
       const td = el('td', { class: column.cls, title: column.title ? column.title(row) : null });
-      td.append(href ? el('a', { href, text }) : text);
+      const link = column.external ? { target: '_blank', rel: 'noopener noreferrer' } : {};
+      td.append(href ? el('a', { href, text, ...link }) : text);
       tr.append(td);
     }
     body.append(tr);
@@ -387,7 +409,7 @@ function tableBody(table, columns, rows, empty, rowClass) {
 }
 
 // A short list that is always shown in full (e.g. the sites one IP visited).
-// columns: { label, value(row), cls, href(row), title(row) }
+// columns: { label, value(row), cls, href(row), title(row), external (open the link in a new tab) }
 export function staticTable({ columns, empty = 'No data', rowClass }) {
   const table = el('table');
   return { node: el('div', { class: 'table-wrap' }, [table]), set: (rows) => tableBody(table, columns, rows, empty, rowClass) };
@@ -398,7 +420,8 @@ const SEARCH_JUNK = /[^\p{L}\p{N}\p{M} ._:/@?=&+~,#%()-]/gu;
 
 // A long list paged on the server: only `pageSize` rows are fetched at a time,
 // "Show more" fetches the next page and the search box runs the search in Athena.
-export function pagedTable({ list, params, pageSize, columns, placeholder = 'Search…', empty = 'No data', rowClass }) {
+// With searchUrls, a full address typed in the search (https://site/path) is searched as its path.
+export function pagedTable({ list, params, pageSize, columns, placeholder = 'Search…', empty = 'No data', rowClass, searchUrls }) {
   const search = el('input', { type: 'search', class: 'table-filter', placeholder, 'aria-label': placeholder, maxlength: 100, hidden: true });
   const table = el('table');
   const info = el('span', { class: 'table-info' });
@@ -448,7 +471,9 @@ export function pagedTable({ list, params, pageSize, columns, placeholder = 'Sea
   search.addEventListener('input', () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      const next = search.value.replace(SEARCH_JUNK, ' ').trim().slice(0, 100);
+      const words = search.value.trim().split(/\s+/);
+      const typed = searchUrls ? words.map(urlPath).join(' ') : search.value;
+      const next = typed.replace(SEARCH_JUNK, ' ').trim().slice(0, 100);
       if (next === query) return;
       query = next;
       info.textContent = 'Searching…';
