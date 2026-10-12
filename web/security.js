@@ -94,7 +94,7 @@ root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['Someone with another Microsoft account signs in', LOW, 'Single-tenant app with assignment required, plus an @dliu.com domain check in the Lambda'],
   ['The Lambda or buckets are called without CloudFront', LOW, 'Function URL requires IAM auth from CloudFront (OAC); buckets block public access and allow only CloudFront'],
   ['The dashboard is framed for clickjacking', LOW, "frame-ancestors 'none', X-Frame-Options DENY and Cross-Origin-Opener-Policy"],
-  ['Fake dl_vid cookies or scripted requests distort the numbers', MEDIUM, 'Cookie format is validated and bots are flagged; the data is analytics only and grants no access'],
+  ['Fake dl_vid cookies or scripted requests distort the numbers', MEDIUM, 'Cookie format is validated and bots are hidden by default; the data is analytics only and grants no access'],
   ['Request floods run up the bill', LOW, 'Queries need sign-in; each query stops at 1 GB scanned; repeat queries reuse results for 5 minutes; unauthenticated calls return 401 cheaply'],
   ['Secrets leak through the public repository', LOW, 'The client secret, tenant and client IDs live in encrypted SSM parameters read at run time; git history scanned'],
   ['Someone writes forged log files into the log bucket to plant fake visits', LOW, 'The bucket policy lets only the log delivery service write, only to raw-v2/, only for delivery sources in this account (aws:SourceAccount and aws:SourceArn); the partitioner only accepts files under raw-v2/<site>/YYYY/MM/DD/ and rewrites their columns by name'],

@@ -14,9 +14,12 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
   - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
-  - `/page?site=<key>&path=<path>` **Page** – one page's views over time, its visitors, IP addresses and requests (the **Details** link in Top pages). Page names in Top pages link to the live page, and the page and request searches accept a full URL.
+  - `/page?site=<key>&path=<path>` **Page** – one page's views over time, its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.
+  - Bots are left out of every widget by default. **Include bots** (on the All sites, Site and Page pages) adds them
+    back, highlighted; the choice is kept in a `dl_dash_bots` cookie for a year and sent to the API as `bots=include`.
+    The IP page always includes them.
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
   - Every widget loads on its own (`/api/overview`, `/api/page` and `/api/ip` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
@@ -103,6 +106,10 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
+- A request is a bot if its user agent is empty, `-`, or looks like a crawler or script, or if its IP belongs to a
+  cloud or hosting network (`HOSTING_NETWORKS` in `lambda/dashboard/queries.js`: AWS, Google, Azure, Oracle, DigitalOcean,
+  OVH, Hetzner, scanners like Censys…). CloudFront itself doesn't flag bots. Networks that also carry people
+  (Cloudflare WARP, iCloud Private Relay) are not on the list. Visitor IDs are worked out before bots are dropped.
 - Country and ASN come from CloudFront itself; requests before the switch to v2 (about 21:00 UTC on 9 Oct 2026)
   have none. City comes from CloudFront too, from about 13:30 UTC on 12 Oct 2026, and only on requests the visitor
   function runs on (not `/api/*` behaviors, nor link.dliu.com, whose viewer-request function answers every request).

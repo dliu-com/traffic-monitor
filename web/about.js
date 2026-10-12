@@ -40,7 +40,7 @@ root.append(tiers({
       label: 'Visitors', badge: 'Internet', tone: 'untrusted',
       nodes: [
         { icon: 'browser', title: 'Browsers', text: 'People visiting any dliu.com site' },
-        { icon: 'bot', title: 'Bots', text: 'Crawlers and scripts, flagged by user agent' },
+        { icon: 'bot', title: 'Bots', text: 'Crawlers, scripts and cloud-hosted traffic, hidden unless you include them' },
       ],
     },
     {
@@ -216,7 +216,7 @@ detailList('Components', [
 detailList('Data and retention', [
   'Each log line has 36 fields; the dashboard uses time, IP, country, city, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
   'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs); others have no city.',
-  'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. Requests whose user agent looks like a crawler or script are flagged as bots, left out of visitor and page counts, and hidden in the request list by default.',
+  'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. A request is a bot if its user agent is missing or looks like a crawler or script, or if its IP belongs to a cloud or hosting network (AWS, Google, Azure, Oracle, DigitalOcean, OVH, Hetzner, scanners like Censys and others; not Cloudflare or iCloud Private Relay, which carry real people). CloudFront does not flag bots itself. Bots are left out of every widget unless Include bots is ticked; that choice is remembered in a cookie for a year. The IP page always shows everything.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
   'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',
 ]);
@@ -225,7 +225,7 @@ detailList('Dashboard queries', [
   'All sites page: seven queries for totals, visits over time, countries, the country filter list, per-site totals, per-site sparklines and IP addresses.',
   'Site page: eight queries for one site: totals, visits over time, countries, the country filter list, top pages, external referrers, IP addresses and its request log.',
   'Country filter: choosing a country (or clicking one in the Countries table) narrows every widget on the All sites, Site and Page pages to that country; it is kept in the link as ?country=. The IP page always shows everything the IP did.',
-  'Page page (Details in Top pages): five queries for one path on one site: totals, views over time, its visitors, its IP addresses and its requests.',
+  'Page page (click a page in Top pages): five queries for one path on one site: totals, views over time, its visitors, its IP addresses and its requests.',
   'IP page: five queries across all sites for that IP: summary (with country, city and network), sites visited, its dl_vid IDs, other IPs with the same ID, and its requests.',
   'Tables are paged in Athena: only the rows on screen are fetched (at most 100 per call), with a total count. Search and "Show more" run a new query instead of filtering rows already downloaded.',
   'Ranges: last 1 or 12 hours, 24 hours, 7, 30, 90 or 365 days, or a custom period of up to 366 days typed as YYYY-MM-DD HH:MM in your local time. Charts use minutes up to 3 hours, hours up to 3 days and days beyond that.',

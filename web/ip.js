@@ -1,5 +1,5 @@
 import {
-  $, IP_PATTERN, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, ipLink, isBot, kpis,
+  $, IP_PATTERN, browserLabel, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, hostingName, ipLink, isBot, kpis,
   pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
 } from './dash.js';
 
@@ -35,6 +35,7 @@ const related = pagedTable({
   pageSize: 10,
   placeholder: 'Search IP, site, city, user agent…',
   empty: 'None — this cookie was only seen on this IP',
+  rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
@@ -42,7 +43,7 @@ const related = pagedTable({
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Browser', value: (r) => describeUA(r.last_ua), title: (r) => r.last_ua, cls: 'muted' },
+    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
   ],
 });
 relatedCard.head.append(related.search);
@@ -102,7 +103,7 @@ const ipPart = (name) => part('/api/ip', name, { ip, ...period() });
 const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows }) => {
   const s = rows[0] || {};
   const seen = Number(s.requests) > 0;
-  periodNote.textContent = `Showing ${periodText(filters)} across all sites.`;
+  periodNote.textContent = `Showing ${periodText(filters)} across all sites, bots included.`;
   title.replaceChildren(ip, seen ? el('span', { class: `tag${isBot(s) ? ' bot' : ''}`, text: isBot(s) ? 'Bot' : 'Person' }) : null);
   kpiBox.replaceChildren(kpis([
     ['Page views', fmt(s.pageviews), 'HTML page loads'],
@@ -118,7 +119,8 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
         s.country ? null : 'Country is recorded by CloudFront for requests logged after country logging started'],
       ['City', s.city || (seen ? 'Not recorded' : ''),
         s.city ? 'Latest city CloudFront placed this IP in (approximate)' : 'City is recorded by CloudFront for requests logged after city logging started'],
-      ['Network', s.asn ? `AS${s.asn}` : (seen ? 'Not recorded' : ''), 'The autonomous system (ISP or hosting provider) the IP belongs to'],
+      ['Network', s.asn ? `AS${s.asn}${hostingName(s.asn) ? ` · ${hostingName(s.asn)} (hosting network, counted as a bot)` : ''}` : (seen ? 'Not recorded' : ''),
+        'The autonomous system (ISP or hosting provider) the IP belongs to'],
       ['First seen', seen ? formatTime(s.first_seen) : ''],
       ['Last seen', seen ? formatTime(s.last_seen) : ''],
       ['Latest browser', describeUA(s.last_ua), s.last_ua],

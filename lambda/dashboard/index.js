@@ -3,7 +3,7 @@
 const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
-const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
+const { BadRequest, HOSTING_NETWORKS, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -65,7 +65,7 @@ function createHandler(deps = {}) {
       const session = auth.getSession(event, config, clock());
       if (!session) return json(401, { error: 'Not signed in' });
 
-      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
+      if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts, hosting: HOSTING_NETWORKS });
       if (path === '/api/overview' || path === '/api/ip' || path === '/api/page') {
         const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip)

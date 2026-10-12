@@ -1,6 +1,6 @@
 import {
-  $, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el,
-  filters, fmt, formatTime, handleError, ipLink, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
+  $, botToggle, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
+  filters, fmt, formatTime, handleError, ipLink, isBot, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
   sparkline, start, state, widget,
 } from './dash.js';
 
@@ -16,13 +16,14 @@ countryCard.body.append(countries.node);
 const picker = countrySelect(scope, load);
 const note = countryNote(load);
 const sitesBox = el('div', { class: 'site-cards' });
-const ipCard = card('Latest IP addresses', { subtitle: 'people only · click an IP to see everything it did' });
+const ipCard = card('Latest IP addresses', { subtitle: 'click an IP to see everything it did' });
 const ips = pagedTable({
   list: 'ips',
-  params: () => ({ ...scope(), bots: 'hide' }),
+  params: scope,
   pageSize: 15,
   placeholder: 'Search IP, site, country, city, user agent…',
   empty: 'No visitors in this period',
+  rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
@@ -31,7 +32,7 @@ const ips = pagedTable({
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'Browser', value: (r) => describeUA(r.last_ua), title: (r) => r.last_ua, cls: 'muted' },
+    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
     { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
   ],
 });
@@ -39,7 +40,7 @@ ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
 page.append(
-  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [picker.node, periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [botToggle(load), picker.node, periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,
@@ -65,12 +66,12 @@ const overview = (name) => part('/api/overview', name, scope());
 
 const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
   const total = rows[0] || {};
-  periodNote.textContent = `Showing ${periodText(filters)}. Bots and crawlers are left out of visitors and page views.`;
+  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}`;
   kpiBox.replaceChildren(kpis([
-    ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
-    ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
-    ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
-    ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
+    ['Visitors', fmt(total.visitors), 'Distinct visitors: the dl_vid cookie, or the IP when there is no cookie'],
+    ['Page views', fmt(total.pageviews), 'HTML page loads'],
+    ['IP addresses', fmt(total.ips), 'Distinct IP addresses'],
+    ['Requests', fmt(total.requests), 'Everything, including assets'],
   ]));
 });
 

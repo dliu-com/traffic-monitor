@@ -2,7 +2,7 @@
 // Every value from the logs is attacker-controlled, so it is only ever set with textContent.
 export const $ = (id) => document.getElementById(id);
 export const number = new Intl.NumberFormat();
-export const state = { siteHosts: {} };
+export const state = { siteHosts: {}, hosting: {} };
 export const siteName = (key) => state.siteHosts[key] || key;
 export const fmt = (value) => number.format(Number(value) || 0);
 export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;
@@ -29,7 +29,27 @@ export function setStatus(text, isError) {
   $('status').className = isError ? 'error' : '';
 }
 
+// "Include bots" is remembered in a cookie (this dashboard only) and sent with every API call.
+const BOTS_COOKIE = 'dl_dash_bots';
+export const includeBots = () => document.cookie.split('; ').includes(`${BOTS_COOKIE}=include`);
+function setIncludeBots(on) {
+  document.cookie = on ? `${BOTS_COOKIE}=include; Path=/; Max-Age=31536000; Secure; SameSite=Lax`
+    : `${BOTS_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Lax`;
+}
+// The "Include bots" switch for a page; onChange reloads its widgets.
+export function botToggle(onChange) {
+  const input = el('input', { type: 'checkbox', checked: includeBots() });
+  input.addEventListener('change', () => {
+    setIncludeBots(input.checked);
+    onChange();
+  });
+  return el('label', { class: 'bot-toggle', title: 'Bots: crawlers and scripts, requests without a browser name, and visits from cloud or hosting networks' }, [input, ' Include bots']);
+}
+// Wording for notes and hints that depends on the switch.
+export const botsNote = () => (includeBots() ? 'Bots are included and highlighted.' : 'Bots are left out; tick Include bots to see them.');
+
 export async function api(path) {
+  if (includeBots() && path.startsWith('/api/') && path !== '/api/me') path += `${path.includes('?') ? '&' : '?'}bots=include`;
   const response = await fetch(path, { credentials: 'same-origin', headers: { accept: 'application/json' } });
   if (response.status === 401) {
     const error = new Error('signed out');
@@ -56,6 +76,7 @@ export async function start(render) {
   try {
     const me = await api('/api/me');
     state.siteHosts = me.sites || {};
+    state.hosting = me.hosting || {};
     $('user').textContent = me.user;
     $('account').hidden = false;
     $('page').hidden = false;
@@ -102,6 +123,7 @@ export function formatTime(iso) {
 // "Chrome on macOS", "Safari on iPhone", "Bot: Googlebot"
 export function describeUA(ua) {
   if (!ua) return '';
+  if (ua === '-') return 'No browser name';
   if (BOT_UA.test(ua)) {
     const named = ua.match(/([A-Za-z0-9._-]*(?:bot|crawler|spider)[A-Za-z0-9._-]*)/i);
     return `Bot: ${named ? named[1] : ua.split(/[/ ]/)[0]}`;
@@ -596,3 +618,10 @@ export function periodText(filters) {
 }
 
 export const isBot = (row) => row.is_bot === true || row.is_bot === 'true';
+// The cloud or hosting network an address belongs to (by ASN), if it is one.
+export const hostingName = (asn) => (asn != null && Object.hasOwn(state.hosting, String(asn)) ? state.hosting[String(asn)] : null);
+// "Chrome on Windows", plus the hosting network when the address is in one (why it counts as a bot).
+export function browserLabel(ua, asn) {
+  const host = hostingName(asn);
+  return host ? `${describeUA(ua)} · ${host}` : describeUA(ua);
+}

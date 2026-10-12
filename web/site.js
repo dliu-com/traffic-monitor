@@ -1,6 +1,6 @@
 import {
-  $, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, describeUA, el, filters, fmt,
-  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, siteUrl, start, state, widget,
+  $, botToggle, botsNote, browserLabel, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el, filters, fmt,
+  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -35,10 +35,9 @@ const pages = pagedTable({
   empty: 'No page views',
   searchUrls: true,
   columns: [
-    { label: 'Page', value: (r) => r.path, href: (r) => siteUrl(site, r.path), external: true, title: () => 'Open this page ↗', cls: 'wrap' },
+    { label: 'Page', value: (r) => r.path, href: (r) => pageDetailsLink(site, r.path), external: true, title: () => 'Visitors and IP addresses of this page', cls: 'wrap' },
     { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
     { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
-    { label: '', value: () => 'Details', href: (r) => pageDetailsLink(site, r.path), external: true, title: () => 'Visitors and IP addresses of this page', cls: 'nowrap' },
   ],
 });
 pagesCard.head.append(pages.search);
@@ -60,11 +59,10 @@ const referrers = pagedTable({
 refCard.head.append(referrers.search);
 refCard.body.append(referrers.node);
 
-const ipBots = checkbox('Include bots', false);
 const ipCard = card('IP addresses', { subtitle: 'click an IP to see everything it did' });
 const ips = pagedTable({
   list: 'ips',
-  params: () => ({ ...scope(), ...(ipBots.input.checked ? {} : { bots: 'hide' }) }),
+  params: scope,
   pageSize: 20,
   placeholder: 'Search IP, country, city, user agent…',
   empty: 'No visitors in this period',
@@ -76,19 +74,18 @@ const ips = pagedTable({
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'Browser', value: (r) => describeUA(r.last_ua), title: (r) => r.last_ua, cls: 'muted' },
+    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
     { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
   ],
 });
-ipCard.head.append(ipBots.node, ips.search);
+ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
-const hideBots = checkbox('Hide bots', true);
 const pagesOnly = checkbox('Pages only', false);
 const logCard = card('Request log', { subtitle: 'newest first' });
 const log = pagedTable({
   list: 'requests',
-  params: () => ({ ...scope(), ...(hideBots.input.checked ? { bots: 'hide' } : {}), ...(pagesOnly.input.checked ? { pages: 'only' } : {}) }),
+  params: () => ({ ...scope(), ...(pagesOnly.input.checked ? { pages: 'only' } : {}) }),
   pageSize: 20,
   placeholder: 'Search path, URL, IP, city, status, user agent…',
   empty: 'No requests',
@@ -103,15 +100,15 @@ const log = pagedTable({
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
     { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
-    { label: 'Browser', value: (r) => describeUA(r.ua), title: (r) => r.ua, cls: 'muted' },
+    { label: 'Browser', value: (r) => browserLabel(r.ua, r.asn), title: (r) => r.ua, cls: 'muted' },
   ],
 });
-logCard.head.append(hideBots.node, pagesOnly.node, log.search);
+logCard.head.append(pagesOnly.node, log.search);
 logCard.body.append(log.node);
 
 page.append(
   el('p', { class: 'crumbs' }, [home, ' › ', crumb]),
-  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), el('div', { class: 'page-tools' }, [picker.node, periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), el('div', { class: 'page-tools' }, [botToggle(load), picker.node, periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,
@@ -122,20 +119,18 @@ page.append(
 );
 
 const reload = (table) => () => table.load();
-ipBots.input.addEventListener('change', reload(ips));
-hideBots.input.addEventListener('change', reload(log));
 pagesOnly.input.addEventListener('change', reload(log));
 
 const overview = (name) => part('/api/overview', name, scope());
 
 const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
   const total = rows[0] || {};
-  periodNote.textContent = `Showing ${periodText(filters)}. Bots and crawlers are left out of visitors and page views.`;
+  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}`;
   kpiBox.replaceChildren(kpis([
-    ['Visitors', fmt(total.visitors), 'Distinct people: the dl_vid cookie, or the IP when there is no cookie'],
-    ['Page views', fmt(total.pageviews), 'HTML page loads by people'],
-    ['IP addresses', fmt(total.human_ips), 'Distinct IPs used by people (not bots)'],
-    ['Requests', fmt(total.requests), 'Everything, including assets and bots'],
+    ['Visitors', fmt(total.visitors), 'Distinct visitors: the dl_vid cookie, or the IP when there is no cookie'],
+    ['Page views', fmt(total.pageviews), 'HTML page loads'],
+    ['IP addresses', fmt(total.ips), 'Distinct IP addresses'],
+    ['Requests', fmt(total.requests), 'Everything, including assets'],
     ['Errors', fmt(total.errors), 'Responses with status 400 or higher'],
   ]));
 });

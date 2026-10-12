@@ -1,4 +1,4 @@
-const { BadRequest, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, HOSTING_NETWORKS, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -7,12 +7,12 @@ const NOW = Date.UTC(2026, 9, 9, 12, 30, 0);
 
 describe('filters', () => {
   test('defaults to 7 days across all sites', () => {
-    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', country: null, startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day' });
+    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', country: null, startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day', bots: 'hide' });
   });
 
   test('24h uses an hourly timestamp filter', () => {
     expect(parseFilters({ range: '24h', site: 'cyy' }, NOW, env))
-      .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour' });
+      .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour', bots: 'hide' });
   });
 
   test('1 and 12 hour ranges', () => {
@@ -22,7 +22,7 @@ describe('filters', () => {
 
   test('custom ranges with times', () => {
     expect(parseFilters({ from: '2026-10-07T22:15Z', to: '2026-10-08T01:00:00Z' }, NOW, env))
-      .toEqual({ site: 'all', country: null, startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute' });
+      .toEqual({ site: 'all', country: null, startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute', bots: 'hide' });
     expect(parseFilters({ from: '2026-10-01T00:00Z', to: '2026-10-02T00:00Z' }, NOW, env)).toMatchObject({ endDay: '2026-10-01', unit: 'hour' });
     for (const bad of [{ from: '2026-10-08T01:00Z', to: '2026-10-08T01:00Z' }, { from: '2024-01-01T00:00Z', to: '2026-01-01T00:00Z' },
       { from: "2026-10-08T01:00Z'", to: '2026-10-09T01:00Z' }, { from: '2026-10-08 01:00', to: '2026-10-09T01:00Z' }]) {
@@ -82,6 +82,13 @@ describe('country filter', () => {
   });
 });
 
+describe('bot filter', () => {
+  test('bots are hidden unless included', () => {
+    expect(parseFilters({ bots: 'include' }, NOW, env).bots).toBe('include');
+    for (const bad of ['yes', 'HIDE', "include'"]) expect(() => parseFilters({ bots: bad }, NOW, env)).toThrow(BadRequest);
+  });
+});
+
 describe('sql', () => {
   const filters = parseFilters({ site: 'cyy', range: '24h' }, NOW, env);
 
@@ -116,7 +123,7 @@ describe('sql', () => {
     const last = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
     expect(ipQueries(filters, '203.0.113.7', env).summary).toContain(last);
     for (const list of ['ips', 'related']) expect(listQuery(filters, { list, ip: '203.0.113.7' }, env).sql).toContain(last);
-    expect(listQuery(filters, { list: 'requests' }, env).sql).toContain('ip, country, city, visitor_id');
+    expect(listQuery(filters, { list: 'requests' }, env).sql).toContain('ip, country, city, asn, visitor_id');
     expect(listQuery(filters, { list: 'ips', q: 'São Paulo' }, env).sql).toContain("coalesce(cast(city AS varchar), '')");
   });
 
@@ -138,11 +145,11 @@ describe('sql', () => {
   });
 
   test('lists return one page with a total', () => {
-    const { sql, limit, offset } = listQuery(filters, { list: 'ips', bots: 'hide', limit: '15', offset: '30' }, env);
+    const { sql, limit, offset } = listQuery(filters, { list: 'ips', limit: '15', offset: '30' }, env);
     expect([limit, offset]).toEqual([15, 30]);
     expect(sql).toContain('count(*) OVER () AS total');
     expect(sql).toContain("AND site = 'cyy'");
-    expect(sql).toMatch(/WHERE NOT is_bot\nORDER BY last_seen DESC, ip\nOFFSET 30 LIMIT 15$/);
+    expect(sql).toMatch(/\nORDER BY last_seen DESC, ip\nOFFSET 30 LIMIT 15$/);
     expect(listQuery(filters, { list: 'pages', limit: '5000', offset: '-4' }, env)).toMatchObject({ limit: 100, offset: 0 });
     expect(listQuery(filters, { list: 'referrers' }, env).sql).toContain("'(^|\\.)dliu\\.com$'");
   });
@@ -169,14 +176,43 @@ describe('sql', () => {
   });
 
   test('requests list validates drill-down inputs', () => {
-    expect(listQuery(filters, { list: 'requests', visitor: 'abc123def456', bots: 'hide' }, env).sql)
-      .toContain("WHERE visitor_id = 'abc123def456' AND NOT is_bot");
+    expect(listQuery(filters, { list: 'requests', visitor: 'abc123def456' }, env).sql)
+      .toContain("WHERE visitor_id = 'abc123def456'\n");
     expect(listQuery(filters, { list: 'requests', ip: '2001:db8::1' }, env).sql).toContain("ip = '2001:db8::1'");
     expect(() => listQuery(filters, { list: 'requests', visitor: "x' OR '1'='1" }, env)).toThrow(BadRequest);
     expect(() => listQuery(filters, { list: 'requests', ip: "1.1.1.1'--" }, env)).toThrow(BadRequest);
     for (const list of [undefined, 'nope', '__proto__', 'constructor']) {
       expect(() => listQuery(filters, { list }, env)).toThrow(BadRequest);
     }
+  });
+});
+
+describe('bots', () => {
+  const hidden = parseFilters({ site: 'cyy' }, NOW, env);
+  const shown = parseFilters({ site: 'cyy', bots: 'include' }, NOW, env);
+  const DROP = 'WHERE NOT (is_ua_bot OR is_hosting)';
+
+  test('bots (by user agent or hosting network) are dropped by default, kept with bots=include', () => {
+    const sql = overviewQueries(hidden, env).summary;
+    expect(sql).toContain(DROP);
+    expect(sql).toContain("coalesce(ua, '') IN ('', '-')");
+    expect(sql).toContain("coalesce(asn IN ('");
+    expect(sql).toContain("'16509'");
+    expect(sql).toContain("'8075'");
+    expect(sql).not.toContain("'13335'");
+    expect(overviewQueries(shown, env).summary).not.toContain(DROP);
+    for (const list of ['ips', 'pages', 'page_ips']) {
+      expect(listQuery(hidden, { list, path: '/a' }, env).sql).toContain(DROP);
+      expect(listQuery(shown, { list, path: '/a' }, env).sql).not.toContain(DROP);
+    }
+  });
+
+  test('IP views always include bots', () => {
+    for (const sql of Object.values(ipQueries(hidden, '203.0.113.7', env))) expect(sql).not.toContain(DROP);
+    for (const list of ['related', 'cookies', 'requests']) {
+      expect(listQuery(hidden, { list, ip: '203.0.113.7' }, env).sql).not.toContain(DROP);
+    }
+    expect(listQuery(hidden, { list: 'requests' }, env).sql).toContain(DROP);
   });
 });
 
@@ -190,12 +226,9 @@ describe('page details', () => {
       expect(sql).toContain("path = '/game/it''s 围棋'");
       expect(sql).toContain("AND site = 'cyy'");
     }
-    expect(listQuery(filters, { list: 'page_visitors', path: '/a' }, env).sql).toContain('is_page AND NOT is_bot AND');
-    expect(listQuery(filters, { list: 'page_ips', path: '/a' }, env).sql).not.toContain('NOT is_bot');
-    expect(listQuery(filters, { list: 'page_ips', path: '/a', bots: 'hide' }, env).sql).toContain("path = '/a' AND NOT is_bot");
     expect(listQuery(filters, { list: 'requests', path: '/a' }, env).sql).toContain("WHERE path = '/a'");
     const { summary, timeseries } = pageQueries(filters, '/game/1', env);
-    expect(summary).toContain("WHERE is_page AND NOT is_bot AND path = '/game/1'");
+    expect(summary).toContain("WHERE is_page AND path = '/game/1'");
     expect(timeseries).toContain("date_trunc('day', ts)");
   });
 
@@ -243,7 +276,7 @@ describe('handler', () => {
   test('me returns the user and sites', async () => {
     const response = await request('/api/me', signedIn);
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: { root: 'dliu.com', cyy: 'cyy.dliu.com', xiangqi: 'xiangqi.dliu.com' } });
+    expect(JSON.parse(response.body)).toEqual({ user: 'user@example.com', sites: { root: 'dliu.com', cyy: 'cyy.dliu.com', xiangqi: 'xiangqi.dliu.com' }, hosting: HOSTING_NETWORKS });
   });
 
   test('overview runs all queries', async () => {

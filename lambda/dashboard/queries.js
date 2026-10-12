@@ -20,6 +20,32 @@ const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
 
+// Cloud and hosting networks (by ASN): browsing from these is servers and scripts, not people, so it counts
+// as bots. Networks that also carry real people (Cloudflare WARP, iCloud Private Relay via Akamai/Fastly,
+// Apple) are left out.
+const HOSTING_NETWORKS = {
+  16509: 'Amazon AWS', 14618: 'Amazon AWS', 8987: 'Amazon AWS',
+  15169: 'Google', 396982: 'Google Cloud',
+  8075: 'Microsoft Azure',
+  31898: 'Oracle Cloud',
+  14061: 'DigitalOcean',
+  16276: 'OVHcloud',
+  24940: 'Hetzner', 213230: 'Hetzner',
+  63949: 'Akamai Linode',
+  20473: 'Vultr',
+  51167: 'Contabo',
+  12876: 'Scaleway',
+  8560: 'IONOS',
+  60781: 'Leaseweb', 28753: 'Leaseweb',
+  132203: 'Tencent Cloud', 45090: 'Tencent Cloud',
+  45102: 'Alibaba Cloud', 37963: 'Alibaba Cloud',
+  136907: 'Huawei Cloud', 55990: 'Huawei Cloud',
+  396986: 'ByteDance',
+  398324: 'Censys', 398705: 'Censys',
+  211298: 'Internet Measurement',
+};
+const HOSTING_SQL = Object.keys(HOSTING_NETWORKS).map((asn) => `'${Number(asn)}'`).join(', ');
+
 class BadRequest extends Error {}
 
 function settings(env = process.env) {
@@ -40,14 +66,17 @@ const sqlTime = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' '
 // Chart buckets: minutes for up to 3 hours, hours for up to 3 days, days beyond that.
 const unitFor = (ms) => (ms <= 3 * 3600e3 ? 'minute' : ms <= 3 * DAY_MS ? 'hour' : 'day');
 
-// Returns the site, country, the days to read (log partitions) and an optional exact [since, until) window in UTC.
+// Returns the site, country, whether bots are included, the days to read (log partitions) and an optional
+// exact [since, until) window in UTC. Bots are left out unless bots=include.
 function parseFilters(query = {}, now = Date.now(), env = process.env) {
   const { sites } = settings(env);
   const site = query.site || 'all';
   if (site !== 'all' && !sites.includes(site)) throw new BadRequest('Unknown site');
   const country = query.country || null;
   if (country !== null && !COUNTRY.test(country)) throw new BadRequest('Unknown country');
-  return { site, country, ...timeWindow(query, now) };
+  const bots = query.bots || 'hide';
+  if (bots !== 'hide' && bots !== 'include') throw new BadRequest('bots must be hide or include');
+  return { site, country, bots, ...timeWindow(query, now) };
 }
 
 function timeWindow(query, now) {
@@ -79,6 +108,8 @@ function timeWindow(query, now) {
 // ID the visitor function assigned and logged (vid_log), but only if the browser later sent that ID
 // back; clients that never keep cookies would otherwise count as a new visitor on every request,
 // so they fall back to their IP address instead.
+// A bot is a crawler or script by user agent, a request with no user agent, or one from a hosting network.
+// Bots are dropped (after visitor IDs are worked out) unless filters.bots is 'include'.
 function base(filters, env = process.env) {
   const { database, table } = settings(env);
   const siteFilter = filters.site === 'all' ? '' : `\n      AND site = '${filters.site}'`;
@@ -111,14 +142,16 @@ function base(filters, env = process.env) {
     SELECT *,
       CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw END AS city,
       coalesce(cookie_id, CASE WHEN logged_id IS NOT NULL
-        AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id
+        AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id,
+      coalesce(asn IN (${HOSTING_SQL}), false) AS is_hosting,
+      (coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}')) AS is_ua_bot
     FROM r${sinceFilter}
   ), v AS (
     SELECT *,
       coalesce(visitor_id, concat('ip:', ip)) AS visitor,
-      regexp_like(lower(coalesce(ua, '')), '${BOT}') AS is_bot,
+      (is_ua_bot OR is_hosting) AS is_bot,
       (method = 'GET' AND status < 400 AND NOT regexp_like(lower(path), '${ASSET}') AND NOT starts_with(path, '/api/')) AS is_page
-    FROM w
+    FROM w${filters.bots === 'include' ? '' : '\n    WHERE NOT (is_ua_bot OR is_hosting)'}
   )`;
 }
 
@@ -133,11 +166,10 @@ function overviewQueries(filters, env = process.env) {
   return {
     summary: `${cte}
 SELECT count(*) AS requests,
-  count_if(is_page AND NOT is_bot) AS pageviews,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor_id END) AS cookie_visitors,
+  count_if(is_page) AS pageviews,
+  count(DISTINCT visitor) AS visitors,
+  count(DISTINCT visitor_id) AS cookie_visitors,
   count(DISTINCT ip) AS ips,
-  count(DISTINCT CASE WHEN NOT is_bot THEN ip END) AS human_ips,
   count_if(is_bot) AS bot_requests,
   count_if(status >= 400) AS errors,
   coalesce(sum(bytes), 0) AS bytes
@@ -145,19 +177,19 @@ FROM v`,
     timeseries: `${cte}
 SELECT ${TS(`date_trunc('${unit}', ts)`)} AS bucket,
   count(*) AS requests,
-  count_if(is_page AND NOT is_bot) AS pageviews,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors
+  count_if(is_page) AS pageviews,
+  count(DISTINCT visitor) AS visitors
 FROM v GROUP BY 1 ORDER BY 1`,
     sites: `${cte}
 SELECT site, count(*) AS requests,
-  count_if(is_page AND NOT is_bot) AS pageviews,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors,
-  count(DISTINCT CASE WHEN NOT is_bot THEN ip END) AS ips,
-  ${TS('max(CASE WHEN is_page AND NOT is_bot THEN ts END)')} AS last_visit
+  count_if(is_page) AS pageviews,
+  count(DISTINCT visitor) AS visitors,
+  count(DISTINCT ip) AS ips,
+  ${TS('max(CASE WHEN is_page THEN ts END)')} AS last_visit
 FROM v GROUP BY site ORDER BY pageviews DESC, requests DESC`,
     site_series: `${cte}
 SELECT site, ${TS(`date_trunc('${unit}', ts)`)} AS bucket,
-  count_if(is_page AND NOT is_bot) AS pageviews
+  count_if(is_page) AS pageviews
 FROM v GROUP BY 1, 2 ORDER BY 1, 2`,
   };
 }
@@ -198,15 +230,14 @@ const LISTS = {
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
   max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
 FROM v GROUP BY ip`,
-    where: q.bots === 'hide' ? ['NOT is_bot'] : [],
     search: ['ip', 'sites', 'last_ua', 'country', 'city', 'asn'],
     order: 'last_seen DESC, ip',
   }),
   countries: () => ({
     sql: `SELECT coalesce(country, 'unknown') AS country,
-  count(DISTINCT CASE WHEN NOT is_bot THEN visitor END) AS visitors,
-  count_if(is_page AND NOT is_bot) AS pageviews,
-  count(DISTINCT CASE WHEN NOT is_bot THEN ip END) AS ips,
+  count(DISTINCT visitor) AS visitors,
+  count_if(is_page) AS pageviews,
+  count(DISTINCT ip) AS ips,
   count(*) AS requests
 FROM v GROUP BY 1`,
     search: ['country'],
@@ -214,7 +245,7 @@ FROM v GROUP BY 1`,
   }),
   pages: () => ({
     sql: `SELECT site, path, count(*) AS views, count(DISTINCT visitor) AS visitors
-FROM v WHERE is_page AND NOT is_bot GROUP BY site, path`,
+FROM v WHERE is_page GROUP BY site, path`,
     search: ['path'],
     order: 'views DESC, path',
   }),
@@ -223,7 +254,7 @@ FROM v WHERE is_page AND NOT is_bot GROUP BY site, path`,
     const internal = `(^|\\.)${rootDomain.replace(/[^a-z0-9.-]/gi, '').replace(/\./g, '\\.')}$`;
     return {
       sql: `SELECT url_extract_host(referrer) AS referrer, count(*) AS views, count(DISTINCT visitor) AS visitors
-FROM v WHERE is_page AND NOT is_bot AND referrer IS NOT NULL
+FROM v WHERE is_page AND referrer IS NOT NULL
   AND NOT regexp_like(coalesce(url_extract_host(referrer), ''), '${internal}')
 GROUP BY 1`,
       search: ['referrer'],
@@ -238,20 +269,22 @@ GROUP BY 1`,
     }
     if (q.ip) conditions.push(requireIp(q.ip));
     if (q.path !== undefined) conditions.push(requirePath(q.path));
-    if (q.bots === 'hide') conditions.push('NOT is_bot');
     if (q.pages === 'only') conditions.push('is_page');
     return {
-      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
+      // The IP page shows everything an IP did, bots included.
+      allBots: Boolean(q.ip),
+      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
 FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       search: ['site', 'ip', 'country', 'city', 'method', 'path', 'status', 'referrer', 'ua'],
       order: '"time" DESC, ip, path',
     };
   },
-  // The people who viewed one page, newest first. Bots are never visitors.
+  // The visitors who viewed one page, newest first.
   page_visitors: (q) => ({
     sql: `SELECT visitor, max(visitor_id) AS visitor_id, count(*) AS views, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
-  max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua
-FROM v WHERE is_page AND NOT is_bot AND ${requirePath(q.path)}
+  max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua,
+  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot
+FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY visitor`,
     search: ['visitor_id', 'last_ip', 'country', 'city', 'last_ua'],
     order: 'last_seen DESC, visitor',
@@ -259,8 +292,8 @@ GROUP BY visitor`,
   // The IP addresses one page was viewed from.
   page_ips: (q) => ({
     sql: `SELECT ip, count(*) AS views, count(DISTINCT visitor) AS visitors, max_by(country, ts) AS country, ${LAST_CITY},
-  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot
-FROM v WHERE is_page AND ${requirePath(q.path)}${q.bots === 'hide' ? ' AND NOT is_bot' : ''}
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(asn, ts) AS asn
+FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY ip`,
     search: ['ip', 'country', 'city', 'last_ua'],
     order: 'last_seen DESC, ip',
@@ -272,7 +305,8 @@ GROUP BY ip`,
       allSites: true,
       sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY}
+  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY},
+  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot
 FROM v
 WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
 GROUP BY ip`,
@@ -301,7 +335,7 @@ function listQuery(filters, query = {}, env = process.env) {
   return {
     limit,
     offset,
-    sql: `${base(list.allSites ? { ...filters, site: 'all', country: null } : filters, env)}
+    sql: `${base(list.allSites ? { ...filters, site: 'all', country: null, bots: 'include' } : list.allBots ? { ...filters, bots: 'include' } : filters, env)}
 SELECT *, count(*) OVER () AS total FROM (
 ${list.sql}
 ) t${where.length ? `\nWHERE ${where.join(' AND ')}` : ''}
@@ -313,7 +347,7 @@ OFFSET ${offset} LIMIT ${limit}`,
 // Summary of one IP address across every site; its long lists come from listQuery.
 function ipQueries(filters, ip, env = process.env) {
   const match = requireIp(ip);
-  const cte = base({ ...filters, site: 'all', country: null }, env);
+  const cte = base({ ...filters, site: 'all', country: null, bots: 'include' }, env);
   return {
     summary: `${cte}
 SELECT count(*) AS requests, count_if(is_page) AS pageviews,
@@ -332,10 +366,10 @@ GROUP BY site ORDER BY max(ts) DESC`,
   };
 }
 
-// Summary and chart of one page on one site (bots left out, as in Top pages).
+// Summary and chart of one page on one site.
 function pageQueries(filters, pagePath, env = process.env) {
   if (filters.site === 'all') throw new BadRequest('Choose a site');
-  const match = `is_page AND NOT is_bot AND ${requirePath(pagePath)}`;
+  const match = `is_page AND ${requirePath(pagePath)}`;
   const cte = base(filters, env);
   const unit = ['minute', 'hour', 'day'].includes(filters.unit) ? filters.unit : 'day';
   return {
@@ -349,4 +383,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings };
+module.exports = { BadRequest, HOSTING_NETWORKS, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings };
