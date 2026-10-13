@@ -20,14 +20,14 @@ function list(items) {
 }
 
 root.append(stats([
-  ['00:30 UTC', 'daily check of the last 3 days', 'clock'],
+  ['6 hours', 'between checks of today and the 3 days before', 'clock'],
   ['5 rules', 'tried in a fixed order', 'filter'],
-  ['900', 'AbuseIPDB lookups a day at most', 'shield'],
+  ['1,000', 'AbuseIPDB lookups a day, shared by all runs', 'shield'],
   ['0', 'browsers judged by their name', 'browser'],
 ]));
 
 add('h2', 'The rules');
-add('p', 'A request is a bot if its user agent gives it away. Every other rule is judged once a day for each IP address and day (UTC), across all sites together, and the first rule that matches is the reason shown on the dashboard.');
+add('p', 'A request is a bot if its user agent gives it away. Every other rule is judged every 6 hours for each IP address and day (UTC), across all sites together, and the first rule that matches is the reason shown on the dashboard.');
 root.append(flow({
   title: 'Checks, in order',
   numbered: true,
@@ -54,19 +54,19 @@ root.append(callout('browser', 'The browser name is never used against a visitor
 
 add('h2', 'When it runs');
 root.append(tiers({
-  title: 'Daily bot check',
+  title: 'Bot check',
   rows: [
     {
-      label: 'Trigger', badge: 'Daily', tone: 'edge',
+      label: 'Trigger', badge: 'Every 6 hours', tone: 'edge',
       nodes: [
-        { icon: 'clock', title: 'Schedule', text: 'EventBridge at 00:30 UTC, retried twice on error' },
-        { icon: 'user', title: 'Check bots now', text: 'Button on the Bots page; also checks today so far' },
+        { icon: 'clock', title: 'Schedule', text: 'EventBridge at 00:30, 06:30, 12:30 and 18:30 UTC, retried twice on error; skipped while another check is running' },
+        { icon: 'user', title: 'Check bots now', text: 'Button on the Bots page; the same check, straight away' },
       ],
     },
     {
       label: 'Bot check Lambda', badge: 'Up to 15 min', tone: 'app', link: 'starts',
       nodes: [
-        { icon: 'athena', title: 'One Athena query', text: 'Per day and IP: requests, browser requests, network, scanned paths, page loads, last AbuseIPDB result' },
+        { icon: 's3', title: 'New log files only', text: 'Adds each file not read before to running counts per day and IP: requests, browser requests, network, scanned paths, page loads' },
         { icon: 'shield', title: 'AbuseIPDB', text: 'Looks up IPs that still look like people' },
         { icon: 'filter', title: 'Rules', text: 'Picks the first matching reason for each IP and day' },
       ],
@@ -76,6 +76,7 @@ root.append(tiers({
       nodes: [
         { icon: 's3', title: 'bots/dt=<day>/', text: 'One file per day listing its bots and why; replaced on every run' },
         { icon: 's3', title: 'reputation/dt=<day>/', text: 'AbuseIPDB results, kept 180 days' },
+        { icon: 's3', title: 'bot-state/', text: 'The counts and the files already read, per day (kept a week), and the latest AbuseIPDB result per IP' },
       ],
     },
     {
@@ -86,26 +87,25 @@ root.append(tiers({
       ],
     },
   ],
-  note: 'Each run re-judges the last 3 days, so a late AbuseIPDB result or a newly listed hosting network still corrects them. After that the daily log merge deletes the bots\' requests for good.',
+  note: 'Each run re-judges today and the 3 days before from the saved counts, so a late AbuseIPDB result or a newly listed hosting network still corrects them. No log record is read twice and no IP is looked up twice within 30 days. After that the daily log merge deletes the bots\' requests for good.',
 }));
 list([
-  'Today\'s traffic counts as people until a check has covered it, except requests with a crawler user agent. A delay of up to a day is expected.',
-  'Check bots now, on the Bots page, runs the same check over the last 3 days plus today. It takes about a minute; the page reloads when it finishes. Only one check runs at a time.',
-  'The dashboards leave bots out. The Bots page (signed in) shows their requests, IPs and user agents for any period; the AbuseIPDB check page shows how the daily lookups were used.',
-  'At 01:30 UTC the log merge turns each day the check has finished with (4 days ago) into one file per site in a folder per month (archive/month=YYYY-MM/) and deletes the bots\' requests for good, so bot records exist only for the last 3 days plus today.',
-  'Verdicts are per day: an IP that was a bot yesterday is judged again today, because home and mobile IPs change hands.',
+  'New traffic counts as people until a check has covered it, except requests with a crawler user agent. A delay of up to 6 hours is expected.',
+  'Check bots now, on the Bots page, runs the same check straight away. It takes about a minute; the page reloads when it finishes. Only one check runs at a time.',
+  'The dashboards leave bots out. The Bots page (signed in) shows their requests, IPs and user agents for any period; the AbuseIPDB check page shows how the lookups were used.',
+  'At 01:30 UTC the log merge turns each day the check has finished with (4 days ago) into one file per site in a folder per month (archive/month=YYYY-MM/) and deletes the bots\' requests for good, so bot records exist only for today and the 3 days before.',
+  'Verdicts are per day: an IP that was a bot yesterday is judged afresh today, because home and mobile IPs change hands.',
 ]);
 
 add('h2', 'AbuseIPDB and its daily limit');
 add('p', 'The free AbuseIPDB plan allows 1,000 lookups a day, reset at midnight UTC. The check spends them carefully:');
 root.append(table(['Rule', 'Effect'], [
   ['Only possible people', 'IPs already caught by another rule, or that never used a browser user agent, are not looked up'],
-  ['Once per run', 'Each IP is looked up at most once per run, however many days or sites it visited'],
-  ['Saved for 30 days', 'An IP is looked up again only after 30 days; results are kept for 180 days'],
+  ['Once per 30 days', 'Each IP is looked up at most once, however many days, sites or runs it appears in; it is looked up again only after 30 days. Results are saved as soon as the lookups end, and kept for 180 days'],
   ['Newest and busiest first', 'IPs from the latest day go first, the busiest ones first within a day'],
-  ['At most 900 a run', 'Leaves room for a second run on the same day, such as Check bots now'],
+  ['Shared by the day\'s runs', 'Each run uses what the day\'s earlier runs left of the 1,000; once one hits the limit, the rest of the day\'s runs look nothing up'],
   ['Stops at the limit', 'When AbuseIPDB answers 429 or says no lookups are left, the run stops looking up, saves what it has and flags with the results it already has'],
-  ['Catches up the next day', 'IPs that were not looked up go first in the next run while they are within the 3-day window; after that they are dropped and count as people'],
+  ['Catches up later', 'IPs that were not looked up wait for the next run with lookups left, while their newest day is within the last 3 days; after that they are dropped and count as people'],
 ]));
 add('p', 'Only the IP address is sent to AbuseIPDB, never the visitor ID, page or user agent. The API key is stored encrypted in SSM Parameter Store. Without a key, the check still runs every other rule.');
 
@@ -138,10 +138,10 @@ detailList('Data', [
   'The run status (running, done or failed, with counts) is kept in bots/status.json; a run that has not finished after 16 minutes is shown as failed.',
 ]);
 detailList('Commands', [
-  'make classify-bots DAYS=3 re-checks the last 3 days from the command line (older days have been merged, so re-checking them changes nothing).',
+  'make classify-bots runs the check now for today and the last DAYS days (default 3, at most 7; older days have been merged, so there is nothing left to check).',
   'make compact-logs merges days now; FROM=YYYY-MM-DD TO=YYYY-MM-DD merges older days once, DRY=1 only reports what it would do, UNJUDGED=1 also merges days from before the bot check (dropping agent bots only).',
   'make set-abuseipdb-key stores the AbuseIPDB key in SSM without echoing it.',
-  'The bot check Lambda logs a summary of each run: days, IPs, bots per reason and AbuseIPDB lookups used and left.',
+  'The bot check Lambda logs a summary of each run: days, IPs, log files read, bots per reason and AbuseIPDB lookups used and left.',
 ]);
 details.append(document.createElement('h3'));
 details.lastChild.textContent = 'Further reading';

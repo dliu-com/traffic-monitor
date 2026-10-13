@@ -85,7 +85,7 @@ page.append(
   el('p', { class: 'crumbs' }, [el('a', { href: '/bots', text: 'Bots' }), ' › AbuseIPDB check']),
   el('div', { class: 'page-head' }, [el('h2', { text: 'AbuseIPDB check' }), el('div', { class: 'page-tools' }, [botCheck(load)])]),
   el('p', { class: 'period-note' }, [
-    'The daily bot check looks up IPs that look like people on AbuseIPDB (free plan: 1,000 lookups a day). An IP is looked up again after 30 days. IPs not looked up within 3 days are dropped and count as people. ',
+    'The bot check, every 6 hours, looks up IPs that look like people on AbuseIPDB (free plan: 1,000 lookups a day, shared by the day\'s runs). An IP is looked up once, and again only after 30 days. IPs not looked up within 3 days are dropped and count as people. ',
     el('a', { href: '/detect-bot', text: 'How bots are detected' }), '.',
   ]),
   usageBox,
@@ -102,7 +102,7 @@ const loadRuns = widget(usageBox, () => api('runs'), (data) => {
     ['Lookups today', `${fmt(data.today.looked_up)} / ${fmt(data.limit)}`, 'AbuseIPDB lookups used today (UTC)'],
     ['Left today', data.today.remaining == null ? '—' : fmt(data.today.remaining), 'What AbuseIPDB said was left after the last run today'],
     ['IPs waiting', fmt(data.waiting), 'IPs from the last 3 days still to look up; the next run takes them first'],
-    ['Next run', formatTime(data.next_run), 'The daily bot check (00:30 UTC)'],
+    ['Next run', formatTime(data.next_run), 'The bot check runs at 00:30, 06:30, 12:30 and 18:30 UTC'],
   ]));
   const last = data.last_run;
   lastRun.textContent = last

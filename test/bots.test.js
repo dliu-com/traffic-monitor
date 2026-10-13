@@ -16,20 +16,53 @@ const response = (status, body, remaining = '500') => ({
 });
 const abuse = (score, extra = {}) => ({ data: { abuseConfidenceScore: score, totalReports: score ? 7 : 0, usageType: 'Fixed Line ISP', isp: 'Example ISP', domain: 'example.net', isTor: false, ...extra } });
 
-function setup(rows, { key = 'secret', fetchImpl, status } = {}) {
+// An in-memory bucket: puts are kept (and listed in order), gets and lists are recorded.
+function fakeS3(objects = {}) {
+  const store = new Map(Object.entries(objects).map(([key, body]) => [key, typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)]));
   const puts = [];
-  const queries = [];
-  const lookups = [];
+  const gets = [];
+  const lists = [];
   const s3 = {
     send: async (command) => {
-      if (command.constructor.name === 'GetObjectCommand') {
-        if (!status) throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
-        return { Body: { transformToString: async () => JSON.stringify(status) } };
+      const { Key, Prefix, Body, StartAfter } = command.input;
+      switch (command.constructor.name) {
+        case 'GetObjectCommand': {
+          gets.push(Key);
+          if (!store.has(Key)) throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+          const body = Buffer.from(store.get(Key));
+          return { Body: { transformToString: async () => body.toString('utf8'), transformToByteArray: async () => new Uint8Array(body) } };
+        }
+        case 'ListObjectsV2Command':
+          lists.push(Prefix);
+          return { Contents: [...store.keys()].filter((key) => key.startsWith(Prefix) && (!StartAfter || key > StartAfter)).sort().map((key) => ({ Key: key })) };
+        case 'PutObjectCommand':
+          puts.push({ key: Key, body: Body });
+          store.set(Key, Body);
+          return {};
+        default:
+          throw new Error(`unexpected ${command.constructor.name}`);
       }
-      puts.push({ key: command.input.Key, body: command.input.Body });
-      return {};
     },
   };
+  return { s3, store, puts, gets, lists };
+}
+
+// Features as the bot-state module gives them, built from rows that may carry a saved AbuseIPDB result.
+const injected = (rows, calls) => async () => {
+  const reputation = new Map();
+  for (const r of rows) if (r.checked && !reputation.has(r.ip)) reputation.set(r.ip, { ip: r.ip, score: r.score, checked: r.checked });
+  return {
+    rows, reputation, read: 0,
+    saveReputation: async () => { calls.saveReputation++; },
+    save: async () => { calls.save++; },
+  };
+};
+
+function setup(rows, { key = 'secret', fetchImpl, status, objects } = {}) {
+  const queries = [];
+  const lookups = [];
+  const calls = { save: 0, saveReputation: 0 };
+  const bucket = fakeS3({ ...objects, ...(status ? { [bots.STATUS_KEY]: status } : {}) });
   const ssm = {
     send: async () => {
       if (!key) throw Object.assign(new Error('missing'), { name: 'ParameterNotFound' });
@@ -37,29 +70,30 @@ function setup(rows, { key = 'secret', fetchImpl, status } = {}) {
     },
   };
   const deps = {
-    env, now: NOW, bucket: 'logs', s3, ssm,
+    env, now: NOW, bucket: 'logs', s3: bucket.s3, ssm,
     loadHosting: async () => NETWORKS,
-    runQuery: async (sql, options) => { queries.push({ sql, options }); return rows; },
+    runQuery: async (sql, options) => { queries.push({ sql, options }); return []; },
     fetchImpl: fetchImpl || (async (url, options) => { lookups.push({ url, options }); return response(200, abuse(0)); }),
   };
+  if (rows) deps.loadFeatures = injected(rows, calls);
   const file = (key) => {
-    const put = puts.find((p) => p.key === key);
+    const put = [...bucket.puts].reverse().find((p) => p.key === key);
     return put && put.body.split('\n').filter(Boolean).map((line) => JSON.parse(line));
   };
-  return { deps, puts, queries, lookups, file };
+  return { deps, puts: bucket.puts, gets: bucket.gets, lists: bucket.lists, store: bucket.store, queries, lookups, calls, file };
 }
 
 describe('days to classify', () => {
-  test('defaults to the 3 full days before today, newest first', () => {
-    expect(bots.daysToClassify({}, NOW)).toEqual(['2026-10-08', '2026-10-07', '2026-10-06']);
+  test('defaults to today and the 3 days before, newest first', () => {
+    expect(bots.daysToClassify({}, NOW)).toEqual(['2026-10-09', '2026-10-08', '2026-10-07', '2026-10-06']);
   });
 
-  test('includes today when asked, and takes a number of days', () => {
+  test('leaves today out when asked, and takes a number of days', () => {
     expect(bots.daysToClassify({ days: 2, includeToday: true }, NOW)).toEqual(['2026-10-09', '2026-10-08', '2026-10-07']);
-    expect(bots.daysToClassify({ days: 1, includeToday: 'yes' }, NOW)).toEqual(['2026-10-08']);
+    expect(bots.daysToClassify({ days: 1, includeToday: false }, NOW)).toEqual(['2026-10-08']);
   });
 
-  test.each([0, 401, 1.5, 'x', -3])('rejects days=%p', (days) => {
+  test.each([0, 8, 1.5, 'x', -3])('rejects days=%p', (days) => {
     expect(() => bots.daysToClassify({ days }, NOW)).toThrow(/days/);
   });
 });
@@ -94,12 +128,11 @@ describe('rules', () => {
     for (const path of ['/', '/og.png', '/photo.jpg', '/app.json']) expect(page.test(path)).toBe(false);
   });
 
-  test('features query reads the chosen days and recent AbuseIPDB results only', () => {
-    const sql = bots.featuresSql('2026-10-02', '2026-10-08', env);
-    expect(sql).toContain("WHERE dt BETWEEN '2026-10-02' AND '2026-10-08'");
+  test('the reputation query (run once, to build the cache) reads recent results only', () => {
+    const sql = bots.reputationSql('2026-06-11', env);
     expect(sql).toContain('FROM "traffic"."ip_reputation"');
-    expect(sql).toContain("WHERE dt >= '2026-06-04'");
-    expect(() => bots.featuresSql("2026-10-02' OR 1=1", '2026-10-08', env)).toThrow();
+    expect(sql).toContain("WHERE dt >= '2026-06-11'");
+    expect(() => bots.reputationSql("2026-06-11' OR 1=1", env)).toThrow();
   });
 
   test('saved AbuseIPDB results are reduced to plain values', () => {
@@ -136,7 +169,6 @@ describe('daily run', () => {
     const t = setup(rows, { fetchImpl });
     const summary = await bots.update({}, t.deps);
 
-    expect(t.queries[0].options).toMatchObject({ maxRows: 1000000 });
     expect(t.lookups.map((l) => new URL(l.url).searchParams.get('ipAddress'))).toEqual(['192.0.2.3', '192.0.2.6']);
     expect(t.lookups[0].options.headers).toEqual({ Key: 'secret', Accept: 'application/json' });
     expect(t.file('bots/dt=2026-10-08/bots.json')).toEqual([
@@ -150,12 +182,13 @@ describe('daily run', () => {
     const saved = t.file(t.puts.find((p) => p.key.startsWith('reputation/dt=2026-10-09/')).key);
     expect(saved.map((r) => [r.ip, r.score])).toEqual([['192.0.2.3', 100], ['192.0.2.6', 0]]);
     expect(summary).toMatchObject({
-      from: '2026-10-06', to: '2026-10-08', days: 2, bots: { hosting: 1, probe: 1, abuse: 2, headless: 1 },
+      from: '2026-10-06', to: '2026-10-09', days: 2, bots: { hosting: 1, probe: 1, abuse: 2, headless: 1 },
       abuseipdb: { wanted: 2, checked: 2, left: 0, failures: 0, stopped: null },
     });
     const statuses = t.puts.filter((p) => p.key === bots.STATUS_KEY).map((p) => JSON.parse(p.body));
     expect(statuses.map((s) => s.state)).toEqual(['running', 'done']);
     expect(statuses[1]).toMatchObject({ trigger: 'schedule', summary: { days: 2 } });
+    expect(t.calls).toEqual({ save: 1, saveReputation: 1 });
   });
 
   test('days with no bots still get an empty file, replacing old verdicts', async () => {
@@ -182,12 +215,35 @@ describe('daily run', () => {
     expect(summary.abuseipdb.checked).toBeLessThan(10);
   });
 
-  test('looks up at most 900 IPs a run, busiest first', async () => {
-    const rows = Array.from({ length: 1000 }, (_, i) => row(`10.0.${Math.floor(i / 250)}.${i % 250}`, { requests: String(i) }));
-    const t = setup(rows);
+  test("shares the day's 1,000 lookups with today's earlier runs, busiest first", async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => row(`10.0.0.${i + 1}`, { requests: String(i) }));
+    const earlier = { 'abuseipdb/runs/dt=2026-10-09/20260909T003000000Z.json': { looked_up: 980, failures: 10, limit_hit: false, remaining: 900 } };
+    const t = setup(rows, { objects: earlier });
     const summary = await bots.update({}, t.deps);
-    expect(summary.abuseipdb).toMatchObject({ wanted: 1000, checked: bots.MAX_CHECKS, left: 100 });
-    expect(new URL(t.lookups[0].url).searchParams.get('ipAddress')).toBe('10.0.3.249');
+    expect(summary.abuseipdb).toMatchObject({ wanted: 30, checked: 10, left: 20 });
+    expect(new URL(t.lookups[0].url).searchParams.get('ipAddress')).toBe('10.0.0.30');
+    // Yesterday's runs don't count.
+    const fresh = setup(rows, { objects: { 'abuseipdb/runs/dt=2026-10-08/20260908T003000000Z.json': { looked_up: 1000 } } });
+    expect((await bots.update({}, fresh.deps)).abuseipdb).toMatchObject({ checked: 30, left: 0 });
+  });
+
+  test('looks nothing up once an earlier run today hit the limit', async () => {
+    const t = setup([row('10.0.0.1')], { objects: { 'abuseipdb/runs/dt=2026-10-09/20260909T003000000Z.json': { looked_up: 3, limit_hit: true } } });
+    const summary = await bots.update({}, t.deps);
+    expect(t.lookups).toHaveLength(0);
+    expect(summary.abuseipdb).toMatchObject({ checked: 0, stopped: 'daily limit reached' });
+    const run = JSON.parse(t.puts.find((p) => p.key.startsWith('abuseipdb/runs/dt=2026-10-09/20261009')).body);
+    expect(run).toMatchObject({ looked_up: 0, remaining: 0, days: { '2026-10-08': { queued: 1, left: 1 } } });
+  });
+
+  test('a scheduled run skips while another is going; a stale run does not count', async () => {
+    const running = { state: 'running', trigger: 'dashboard', started: new Date(NOW - 5 * 60 * 1000).toISOString() };
+    const t = setup([row('10.0.0.1')], { status: running });
+    expect(await bots.update({}, t.deps)).toEqual({ skipped: 'another bot check is still running' });
+    expect(t.puts).toHaveLength(0);
+    expect(t.lookups).toHaveLength(0);
+    const stale = setup([row('10.0.0.1')], { status: { ...running, started: new Date(NOW - 20 * 60 * 1000).toISOString() } });
+    expect(await bots.update({}, stale.deps)).toMatchObject({ abuseipdb: { checked: 1 } });
   });
 
   test('only IPs seen in the last 3 days are queued; each run saves its counts per day', async () => {
@@ -209,8 +265,9 @@ describe('daily run', () => {
     // 192.0.2.14 was last seen 4 days ago: it is not looked up (it stays counted as a person).
     expect(t.lookups.map((l) => new URL(l.url).searchParams.get('ipAddress'))).toEqual(['192.0.2.10', '192.0.2.11', '192.0.2.15']);
     const run = JSON.parse(t.puts.find((p) => p.key.startsWith('abuseipdb/runs/dt=2026-10-09/')).body);
-    expect(run).toMatchObject({ version: 1, trigger: 'schedule', from: '2026-10-06', to: '2026-10-08', limit: 1000, looked_up: 2, limit_hit: true, remaining: 0 });
+    expect(run).toMatchObject({ version: 1, trigger: 'schedule', from: '2026-10-06', to: '2026-10-09', limit: 1000, looked_up: 2, limit_hit: true, remaining: 0 });
     expect(run.days).toEqual({
+      '2026-10-09': { seen: 0, people: 0, skipped: 0, queued: 0, looked_up: 0, left: 0, abusive: 0 },
       '2026-10-08': { seen: 1, people: 1, skipped: 0, queued: 1, looked_up: 1, left: 0, abusive: 1 },
       // 192.0.2.11 counts once, on its newest day.
       '2026-10-07': { seen: 2, people: 2, skipped: 1, queued: 1, looked_up: 1, left: 0, abusive: 0 },
@@ -230,7 +287,7 @@ describe('daily run', () => {
 
   test('a failed run is recorded as failed', async () => {
     const t = setup([]);
-    t.deps.runQuery = async () => { throw new Error('Athena down'); };
+    t.deps.loadFeatures = async () => { throw new Error('Athena down'); };
     await expect(bots.update({}, t.deps)).rejects.toThrow('Athena down');
     const last = JSON.parse(t.puts[t.puts.length - 1].body);
     expect(last).toMatchObject({ state: 'failed' });
@@ -239,6 +296,88 @@ describe('daily run', () => {
 
   test('status reads the last run and ignores a missing file', async () => {
     expect(await bots.readStatus(setup([]).deps.s3, 'logs')).toBeNull();
+    expect(bots.isRunning({ state: 'running', started: new Date(NOW - 60000).toISOString() }, NOW)).toBe(true);
+    expect(bots.isRunning({ state: 'done', started: new Date(NOW - 60000).toISOString() }, NOW)).toBe(false);
     expect(await bots.readStatus(setup([], { status: { state: 'done' } }).deps.s3, 'logs')).toEqual({ state: 'done' });
+  });
+});
+
+describe('reads each log file once', () => {
+  const zlib = require('zlib');
+  const { COLUMNS } = require('../lambda/dashboard/logfile');
+  const line = (values) => COLUMNS.map((name) => values[name] ?? '-').join('\t');
+  const BROWSER = 'Mozilla/5.0%20(Macintosh)';
+  const logFile = (requests) => zlib.gzipSync(`#Version: 1.0\n#Fields: ${COLUMNS.join(' ')}\n${requests.map(([ip, path, time = '10:00:00', extra = {}]) => line({
+    date: '2026-10-09', time, 'c-ip': ip, 'cs-uri-stem': path, 'cs(User-Agent)': BROWSER, asn: '3320', ...extra,
+  })).join('\n')}\n`);
+  const later = NOW + 6 * 60 * 60 * 1000;
+
+  test('a second run reads only new files, adds them to the counts and looks no IP up twice', async () => {
+    const t = setup(null, {
+      objects: {
+        'logs/site=root/dt=2026-10-09/a.gz': logFile([['192.0.2.1', '/'], ['192.0.2.2', '/'], ['192.0.2.3', '/wp-login.php']]),
+        'logs/site=cyy/dt=2026-10-08/b.gz': logFile([['192.0.2.4', '/'], ['192.0.2.4', '/app.js']]),
+        'logs/site=other/dt=2026-10-09/x.gz': logFile([['192.0.2.9', '/']]),
+        'logs/site=root/dt=2026-10-05/old.gz': logFile([['192.0.2.8', '/']]),
+      },
+    });
+    t.deps.runQuery = async (sql) => { t.queries.push(sql); return [{ ip: '192.0.2.2', score: '0', usage_type: 'Fixed Line ISP', is_tor: 'false', checked: '2026-10-01T00:00:00Z' }]; };
+    t.deps.fetchImpl = async (url) => { t.lookups.push(new URL(url).searchParams.get('ipAddress')); return response(200, abuse(0)); };
+    const first = await bots.update({}, t.deps);
+
+    // 192.0.2.1 and .2 loaded no page file: headless, so not looked up; .3 is a scanner; .4 is a person.
+    expect(first).toMatchObject({ files_read: 2, ips: 4, bots: { probe: 1, headless: 2 } });
+    expect(t.lookups).toEqual(['192.0.2.4']);
+    expect(t.queries).toHaveLength(1);
+    expect(t.gets.filter((key) => key.startsWith('logs/'))).toEqual(expect.arrayContaining(['logs/site=root/dt=2026-10-09/a.gz', 'logs/site=cyy/dt=2026-10-08/b.gz']));
+    expect(t.gets).not.toContain('logs/site=other/dt=2026-10-09/x.gz');
+    expect(t.gets).not.toContain('logs/site=root/dt=2026-10-05/old.gz');
+    // One list per site for all 4 days.
+    expect(t.lists.filter((prefix) => prefix.startsWith('logs/'))).toEqual(['logs/site=root/dt=', 'logs/site=cyy/dt=']);
+    const state = JSON.parse(t.store.get('bot-state/dt=2026-10-09.json'));
+    expect(state.files).toEqual(['logs/site=root/dt=2026-10-09/a.gz']);
+    expect(state.ips['192.0.2.3']).toEqual([1, 1, '3320', '2026-10-09T10:00:00Z', 1, 0]);
+    expect(Object.keys(JSON.parse(t.store.get(bots.REPUTATION_CACHE_KEY)).ips).sort()).toEqual(['192.0.2.2', '192.0.2.4']);
+
+    // New requests: .1 now loads a script (a person, looked up), .4 comes back (already looked up).
+    t.store.set('logs/site=root/dt=2026-10-09/c.gz', logFile([['192.0.2.1', '/app.js', '16:00:00', { asn: '2856' }], ['192.0.2.4', '/'], ['192.0.2.4', '/x.css']]));
+    t.gets.length = 0;
+    const second = await bots.update({}, { ...t.deps, now: later });
+    expect(t.gets.filter((key) => key.startsWith('logs/'))).toEqual(['logs/site=root/dt=2026-10-09/c.gz']);
+    expect(second).toMatchObject({ files_read: 1, bots: { probe: 1, headless: 1 } });
+    expect(t.lookups).toEqual(['192.0.2.4', '192.0.2.1']);
+    expect(t.queries).toHaveLength(1);
+    const updated = JSON.parse(t.store.get('bot-state/dt=2026-10-09.json'));
+    expect(updated.files).toEqual(['logs/site=root/dt=2026-10-09/a.gz', 'logs/site=root/dt=2026-10-09/c.gz']);
+    expect(updated.ips['192.0.2.1']).toEqual([2, 2, '2856', '2026-10-09T16:00:00Z', 0, 1]);
+    expect(t.file('bots/dt=2026-10-09/bots.json')).toEqual([{ ip: '192.0.2.2', reason: 'headless' }, { ip: '192.0.2.3', reason: 'probe' }]);
+
+    // Nothing new: no log file read, no lookup.
+    t.gets.length = 0;
+    expect(await bots.update({}, { ...t.deps, now: later + 60000 })).toMatchObject({ files_read: 0 });
+    expect(t.gets.filter((key) => key.startsWith('logs/'))).toEqual([]);
+    expect(t.lookups).toHaveLength(2);
+  });
+
+  test('a run that fails before saving reads the same files again next time', async () => {
+    const t = setup(null, { objects: { 'logs/site=root/dt=2026-10-09/a.gz': logFile([['192.0.2.1', '/app.js']]) } });
+    t.deps.loadHosting = async () => { throw new Error('hosting list unreadable'); };
+    await expect(bots.update({}, t.deps)).rejects.toThrow();
+    expect(t.store.has('bot-state/dt=2026-10-09.json')).toBe(false);
+    t.deps.loadHosting = async () => NETWORKS;
+    expect(await bots.update({}, { ...t.deps, now: NOW + 60 * 60 * 1000 })).toMatchObject({ files_read: 1, ips: 1 });
+  });
+
+  test('crawler user agents, decoded paths and the visitor cookie count like the dashboard', () => {
+    const state = require('../lambda/dashboard/bot-state');
+    const { parseLog } = require('../lambda/dashboard/logfile');
+    const ips = {};
+    const rows = parseLog(`#Fields: ${COLUMNS.join(' ')}\n${[
+      line({ date: '2026-10-09', time: '01:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/%2Eenv', 'cs(User-Agent)': 'curl/8.0' }),
+      line({ date: '2026-10-09', time: '02:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'cs(Cookie)': 'dl_vid%3Dabcdef1234' }),
+    ].join('\n')}\n`);
+    state.addRows(ips, rows, new RegExp(bots.PROBE), new RegExp(bots.PAGE_FILE));
+    expect(ips['192.0.2.1']).toEqual([1, 0, null, null, 1, 0]);
+    expect(ips['192.0.2.2']).toEqual([1, 1, null, null, 0, 1]);
   });
 });

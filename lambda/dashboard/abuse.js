@@ -1,6 +1,6 @@
 'use strict';
 
-// The /abuse-check page (signed in only): how the daily AbuseIPDB lookups (bots.js) used the free
+// The /abuse-check page (signed in only): how the AbuseIPDB lookups (bots.js, every 6 hours) used the free
 // allowance, from the run history files (abuseipdb/runs/), and what the results were (ip_reputation).
 
 const { DAILY_LIMIT, DEFAULT_DAYS, RUNS_PREFIX, ABUSE_SCORE, DATA_CENTER } = require('./bots');
@@ -8,6 +8,8 @@ const { isoDay, settings } = require('./queries');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 30;
+const RUN_OFFSET_MS = 30 * 60 * 1000;
+const RUN_EVERY_MS = 6 * 60 * 60 * 1000;
 const MAX_ABUSIVE = 500;
 const RUN_FILE = /^abuseipdb\/runs\/dt=\d{4}-\d{2}-\d{2}\/[0-9TZ]+\.json$/;
 
@@ -64,14 +66,13 @@ function summarize(runs, now) {
     }
   }
 
-  // The next scheduled run covers the last DEFAULT_DAYS full days, so these IPs are still in the queue.
+  // Scheduled runs start at 00:30, 06:30, 12:30 and 18:30 UTC. The next one covers its day and the
+  // DEFAULT_DAYS days before, so these IPs are still in the queue.
+  const next = Date.parse(today) + RUN_OFFSET_MS + Math.floor((now - Date.parse(today) - RUN_OFFSET_MS) / RUN_EVERY_MS + 1) * RUN_EVERY_MS;
   const last = runs[runs.length - 1] || null;
-  const oldestKept = isoDay(now - (DEFAULT_DAYS - 1) * DAY_MS);
+  const oldestKept = isoDay(Date.parse(isoDay(next)) - DEFAULT_DAYS * DAY_MS);
   const waiting = last ? Object.entries(last.days).filter(([day]) => day >= oldestKept).reduce((sum, [, c]) => sum + n(c.left), 0) : 0;
   const todayRow = byRunDay.get(today);
-  const next = new Date(now);
-  next.setUTCHours(0, 30, 0, 0);
-  if (next.getTime() <= now) next.setUTCDate(next.getUTCDate() + 1);
   return {
     limit: DAILY_LIMIT,
     today: {
@@ -80,7 +81,7 @@ function summarize(runs, now) {
       limit_hit: todayRow ? todayRow.limit_hit : false,
     },
     waiting,
-    next_run: next.toISOString(),
+    next_run: new Date(next).toISOString(),
     last_run: last && { started: last.started, finished: last.finished, trigger: last.trigger, from: last.from, to: last.to, looked_up: n(last.looked_up), stopped: last.stopped || null },
     runs: [...byRunDay.values()].sort((a, b) => b.day.localeCompare(a.day)),
     days: [...logDays.values()].sort((a, b) => b.day.localeCompare(a.day)).slice(0, HISTORY_DAYS + DEFAULT_DAYS),

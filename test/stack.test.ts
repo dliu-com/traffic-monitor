@@ -223,8 +223,14 @@ test('daily bot check: tables, schedule and least-privilege access', () => {
       }),
     });
   }
-  template.hasResourceProperties('AWS::Lambda::Function', { Handler: 'bots.update', Timeout: 900 });
-  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0 * * ? *)' });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'bots.update', Timeout: 900, Environment: { Variables: Match.objectLike({ SITES: Match.anyValue() }) },
+  });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0/6 * * ? *)' });
+  // Its per-day counts expire after a week; the reputation cache beside them is kept.
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Id: 'expire-bot-check-state', Prefix: 'bot-state/dt=', ExpirationInDays: 7 })]) },
+  });
   template.hasResourceProperties('AWS::S3::Bucket', {
     LifecycleConfiguration: {
       Rules: Match.arrayWith([
@@ -305,7 +311,7 @@ test('log merge: daily after the bot check, may delete only under logs/', () => 
     Environment: { Variables: Match.objectLike({ LOGS_BUCKET: Match.anyValue(), SITES: Match.anyValue() }) },
   });
   template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 1 * * ? *)' });
-  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0 * * ? *)' });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0/6 * * ? *)' });
   const policies = Object.values(template.findResources('AWS::IAM::Policy'))
     .filter((policy: any) => JSON.stringify(policy).includes('LogMergeServiceRole'));
   expect(policies).toHaveLength(1);

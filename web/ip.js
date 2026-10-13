@@ -123,7 +123,7 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
       ['Network', s.asn ? `AS${s.asn}${hostingName(s.asn) ? ` · ${hostingName(s.asn)} (hosting network)` : ''}` : (seen ? 'Not recorded' : ''),
         'The autonomous system (ISP or hosting provider) the IP belongs to'],
       ['Counted as a bot', seen ? (botReasonText(s.bot_reasons) || 'No') : '',
-        'Crawler user agents count at once; the other reasons come from the daily bot check, so today\'s requests may not be judged yet'],
+        'Crawler user agents count at once; the other reasons come from the bot check every 6 hours, so the newest requests may not be judged yet'],
       ['First seen', seen ? formatTime(s.first_seen) : ''],
       ['Last seen', seen ? formatTime(s.last_seen) : ''],
       ['Latest browser', describeUA(s.last_ua), s.last_ua],
@@ -137,13 +137,13 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
   setStatus(seen ? '' : 'This IP made no requests in this period. Try a longer period.');
 });
 
-// The latest AbuseIPDB result saved by the daily bot check (only IPs that otherwise looked like people are checked).
+// The latest AbuseIPDB result saved by the bot check (only IPs that otherwise looked like people are checked).
 const reputationFacts = el('div');
 const loadReputation = widget(reputationFacts, () => ipPart('reputation'), ({ rows }) => {
   const r = rows[0];
   reputationFacts.replaceChildren(facts([
     ['AbuseIPDB', r ? `${fmt(r.score)}% abuse confidence · ${fmt(r.reports)} report${Number(r.reports) === 1 ? '' : 's'}${r.is_tor === 'true' ? ' · Tor exit' : ''}` : 'Not checked',
-      r ? null : 'The daily bot check looks up IPs that otherwise look like people'],
+      r ? null : 'The bot check looks up IPs that otherwise look like people'],
     ...(r ? [['Usage type', r.usage_type || '—'], ['ISP', r.isp || '—'], ['Checked', formatTime(r.checked)]] : []),
   ]));
 });

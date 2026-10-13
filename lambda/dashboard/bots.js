@@ -1,29 +1,36 @@
 'use strict';
 
-// Daily bot classifier (handler `bots.update`, runs at 00:30 UTC). For each of the last 3 days it reads
-// what every IP did that day and saves the IPs that count as bots, with the reason, as JSON lines under
-// s3://<log bucket>/bots/dt=<day>/bots.json (Glue table bot_ips). The dashboard joins those verdicts by day
-// and IP, so requests from the current day count as people until the next run (crawler user agents are
-// still caught as they arrive; see queries.js). Reasons, the first that applies:
+// Bot classifier (handler `bots.update`), run every 6 hours (00:30, 06:30, 12:30 and 18:30 UTC) and from
+// the dashboard. For today and each of the 3 days before it, it works out what every IP did that day (from
+// log files no earlier run has read, added to counts kept in bot-state/; see bot-state.js) and saves
+// the IPs that count as bots, with the reason, as JSON lines under s3://<log bucket>/bots/dt=<day>/bots.json
+// (Glue table bot_ips). The dashboard joins those verdicts by day and IP, so requests since the last run
+// count as people until the next one (crawler user agents are still caught as they arrive; see queries.js).
+// Reasons, the first that applies:
 //   hosting  - the IP's network (ASN) is a cloud or hosting network (hosting.js, refreshed weekly)
 //   probe    - it asked for paths only vulnerability scanners ask for
 //   abuse    - AbuseIPDB scores it as abusive, or says it is a Tor exit or a data centre
 //   headless - it never loaded a page's scripts, styles or fonts and never sent the visitor cookie;
 //              every real browser does one or the other, whatever it is called
-// AbuseIPDB: each run collects the distinct IPs seen in those 3 days that are still counted as people and
-// have no result from the last 30 days, newest day and busiest first, and looks each up once (up to 900 a
-// run; the free plan allows 1,000 a day, reset at midnight UTC). It stops early on HTTP 429 or when the
-// remaining allowance reaches 0; the rest wait for the next run. An IP still unchecked once its newest day
-// is more than 3 days old leaves the queue and stays counted as a person ("dropped as safe").
+// AbuseIPDB: each run collects the distinct IPs seen in those days that are still counted as people and
+// have no result from the last 30 days, newest day and busiest first, and looks each up once. Results are
+// saved as soon as the lookups end, so a later run never looks up the same IP again for 30 days (and a scheduled run that
+// finds another run still going skips, so two runs never look up at once). The free plan allows 1,000
+// lookups a day (reset at midnight UTC), shared by all of that day's runs: a run takes whatever today's
+// earlier runs left, and stops early on HTTP 429 or when the remaining allowance reaches 0; the rest wait
+// for the next run. An IP still unchecked once its newest day is more than 3 days old leaves the queue and
+// stays counted as a person ("dropped as safe").
 // Results are saved under reputation/dt=<day>/ (Glue table ip_reputation, kept 180 days), and each run's
 // counts under abuseipdb/runs/dt=<day>/ for the /abuse-check page (kept 120 days). The key lives in SSM;
 // without it that step is skipped.
-// Nothing about a day changes after its 3rd nightly run, so the log merge (compact.js) can then drop its bots.
+// Nothing about a day changes after the last run on its 3rd day after, so the log merge (compact.js) can then drop its bots.
 
 const net = require('net');
 const { runQuery } = require('./athena');
 const { EXCLUDED, cleanName, loadHosting, validAsn } = require('./hosting');
-const { BOT, isoDay, settings } = require('./queries');
+const { isoDay, settings } = require('./queries');
+const state = require('./bot-state');
+const { listKeys, readObject } = require('./logfile');
 
 const API = 'https://api.abuseipdb.com/api/v2/check';
 const BOTS_PREFIX = 'bots/';
@@ -35,11 +42,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS = 3;
 const RUNS_PREFIX = 'abuseipdb/runs/';
 const DAILY_LIMIT = 1000;
-const MAX_DAYS = 400;
+// Older days' log files have been merged into the archive (compact.js), bots already removed.
+const MAX_DAYS = 7;
 const REPUTATION_DAYS = 120;
 const RECHECK_DAYS = 30;
 const MAX_AGE_DAYS = 90;
-const MAX_CHECKS = 900;
 const CONCURRENCY = 4;
 const MAX_FAILURES = 20;
 const TIMEOUT_MS = 10000;
@@ -90,46 +97,48 @@ async function apiKey(client, env = process.env) {
 const validIp = (value) => typeof value === 'string' && value.length <= 45 && net.isIP(value) !== 0;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-// The days to classify: the `days` full days before today (UTC), newest first, plus today so far when
-// `includeToday` is set (runs started from the dashboard).
+// The days to classify, newest first: today so far (unless `includeToday` is false) and the `days` full
+// days before it (UTC).
 function daysToClassify(event, now) {
   const requested = event && event.days !== undefined ? Number(event.days) : DEFAULT_DAYS;
   if (!Number.isInteger(requested) || requested < 1 || requested > MAX_DAYS) throw new Error(`days must be 1-${MAX_DAYS}`);
   const today = Date.parse(isoDay(now));
   const days = Array.from({ length: requested }, (_, i) => isoDay(today - (i + 1) * DAY_MS));
-  return event && event.includeToday === true ? [isoDay(today), ...days] : days;
+  return event && event.includeToday === false ? days : [isoDay(today), ...days];
 }
 
-// One row per day and IP: its network, what it asked for, and its latest AbuseIPDB result.
-function featuresSql(startDay, endDay, env = process.env) {
-  const { database, table, reputationTable } = settings(env);
-  if (!DAY.test(startDay) || !DAY.test(endDay)) throw new Error('Invalid day');
-  const reputationSince = isoDay(Date.parse(startDay) - REPUTATION_DAYS * DAY_MS);
-  return `WITH l AS (
-    SELECT dt, c_ip AS ip,
-      from_iso8601_timestamp(concat(cast("date" AS varchar), 'T', time, 'Z')) AS ts,
-      lower(url_decode(cs_uri_stem)) AS path,
-      lower(coalesce(url_decode(cs_user_agent), '')) AS ua,
-      regexp_like(url_decode(cs_cookie), 'dl_vid=[a-z0-9]{8,40}') AS has_cookie,
-      CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn
-    FROM "${database}"."${table}"
-    WHERE dt BETWEEN '${startDay}' AND '${endDay}'
-  ), f AS (
-    SELECT dt, ip, count(*) AS requests,
-      count_if(NOT (ua IN ('', '-') OR regexp_like(ua, '${BOT}'))) AS browser_requests,
-      max_by(asn, ts) FILTER (WHERE asn IS NOT NULL) AS asn,
-      bool_or(regexp_like(path, '${PROBE}')) AS probe,
-      bool_or(regexp_like(path, '${PAGE_FILE}') OR coalesce(has_cookie, false)) AS loads_page
-    FROM l GROUP BY dt, ip
-  ), rep AS (
-    SELECT ip AS rep_ip, max_by(score, checked) AS score, max_by(usage_type, checked) AS usage_type,
-      max_by(is_tor, checked) AS is_tor, max(checked) AS checked
-    FROM "${database}"."${reputationTable}"
-    WHERE dt >= '${reputationSince}'
-    GROUP BY ip
-  )
-SELECT f.*, score, usage_type, is_tor, checked
-FROM f LEFT JOIN rep ON rep_ip = ip`;
+// The latest AbuseIPDB result per IP checked since `sinceDay`; used once, to build the reputation cache.
+function reputationSql(sinceDay, env = process.env) {
+  const { database, reputationTable } = settings(env);
+  if (!DAY.test(sinceDay)) throw new Error('Invalid day');
+  return `SELECT ip, max_by(score, checked) AS score, max_by(usage_type, checked) AS usage_type,
+  max_by(is_tor, checked) AS is_tor, max(checked) AS checked
+FROM "${database}"."${reputationTable}"
+WHERE dt >= '${sinceDay}'
+GROUP BY ip`;
+}
+
+// Per day and IP, the counts the rules need, from log files no earlier run has read (bot-state.js); and the
+// latest AbuseIPDB result per IP. `save` keeps both for the next run.
+async function loadFeatures(days, now, env, bucket, client, deps) {
+  const since = new Date(now - REPUTATION_DAYS * DAY_MS).toISOString().slice(0, 19) + 'Z';
+  const { states, read } = await state.refresh(client, bucket, days, settings(env).sites, { probe: new RegExp(PROBE), pageFile: new RegExp(PAGE_FILE) });
+  let reputation = await state.readReputation(client, bucket, since);
+  const rebuilt = !reputation;
+  if (rebuilt) {
+    const rows = await (deps.runQuery || runQuery)(reputationSql(isoDay(Date.parse(since)), env), { maxRows: MAX_ROWS, deadlineMs: QUERY_DEADLINE_MS });
+    reputation = new Map(rows.filter((r) => r.checked >= since).map((r) => [r.ip, r]));
+  }
+  return {
+    rows: state.featureRows(states),
+    reputation,
+    read,
+    saveReputation: () => state.saveReputation(client, bucket, reputation, since),
+    save: async () => {
+      await state.save(client, bucket, states);
+      if (rebuilt) await state.saveReputation(client, bucket, reputation, since);
+    },
+  };
 }
 
 const truthy = (value) => value === true || value === 'true';
@@ -251,6 +260,24 @@ async function readStatus(client, bucket) {
   }
 }
 
+// A run longer than the classifier's 15-minute timeout has died, so another may start.
+const RUN_STALE_MS = 16 * 60 * 1000;
+const isRunning = (status, now) => Boolean(status && status.state === 'running' && now - Date.parse(status.started) < RUN_STALE_MS);
+
+// AbuseIPDB lookups today's earlier runs used (failed requests included, to be safe), and what is left.
+async function allowanceLeft(client, bucket, now) {
+  const keys = (await listKeys(client, bucket, `${RUNS_PREFIX}dt=${isoDay(now)}/`)).filter((key) => key.endsWith('.json'));
+  let used = 0;
+  let left = DAILY_LIMIT;
+  for (const key of keys) {
+    const run = JSON.parse((await readObject(client, bucket, key)).toString('utf8'));
+    used += (Number(run.looked_up) || 0) + (Number(run.failures) || 0);
+    if (run.limit_hit === true) left = 0;
+    if (Number.isInteger(run.remaining)) left = Math.min(left, run.remaining);
+  }
+  return Math.max(0, Math.min(left, DAILY_LIMIT - used));
+}
+
 async function update(event = {}, deps = {}) {
   const env = deps.env || process.env;
   const now = deps.now ?? Date.now();
@@ -259,6 +286,12 @@ async function update(event = {}, deps = {}) {
   const days = daysToClassify(event, now);
   const client = deps.s3 || s3();
   const trigger = event && event.trigger === 'dashboard' ? 'dashboard' : 'schedule';
+  // The dashboard refuses to start a run while one is going; a scheduled run skips instead.
+  if (trigger === 'schedule' && isRunning(await readStatus(client, bucket), now)) {
+    const skipped = { skipped: 'another bot check is still running' };
+    console.log(JSON.stringify({ message: 'Bot classification skipped', ...skipped }));
+    return skipped;
+  }
   const started = new Date(now).toISOString();
   await writeStatus(client, bucket, { state: 'running', trigger, started });
   try {
@@ -274,13 +307,11 @@ async function update(event = {}, deps = {}) {
 
 async function classify(days, now, env, bucket, client, deps) {
   const networks = await (deps.loadHosting || loadHosting)();
-  const query = deps.runQuery || runQuery;
-  const rows = (await query(featuresSql(days[days.length - 1], days[0], env), { maxRows: MAX_ROWS, deadlineMs: QUERY_DEADLINE_MS }))
-    .filter((row) => validIp(row.ip) && days.includes(row.dt));
+  const features = await (deps.loadFeatures || loadFeatures)(days, now, env, bucket, client, deps);
+  const rows = features.rows.filter((row) => validIp(row.ip) && days.includes(row.dt));
+  const { reputation } = features;
 
   // AbuseIPDB: IPs still counted as people (using a browser user agent) without a recent result, newest day first.
-  const reputation = new Map();
-  for (const row of rows) if (row.checked && !reputation.has(row.ip)) reputation.set(row.ip, row);
   const checked = new Date(now).toISOString().slice(0, 19) + 'Z';
   const recheck = new Date(now - RECHECK_DAYS * DAY_MS).toISOString().slice(0, 19) + 'Z';
   const key = await apiKey(deps.ssm || ssm(), env);
@@ -310,13 +341,16 @@ async function classify(days, now, env, bucket, client, deps) {
       queue.push(row.ip);
     }
   }
-  const wanted = key ? queue.slice(0, MAX_CHECKS) : [];
-  let lookups = { results: [], failures: 0, stopped: abuse.stopped, remaining: null };
+  const allowance = key ? await allowanceLeft(client, bucket, now) : 0;
+  const wanted = queue.slice(0, allowance);
+  let lookups = { results: [], failures: 0, stopped: key ? (allowance ? null : 'daily limit reached') : abuse.stopped, remaining: key && !allowance ? 0 : null };
   if (key) {
     const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
-    lookups = await checkAll(wanted, key, fetchImpl, checked);
+    if (allowance) lookups = await checkAll(wanted, key, fetchImpl, checked);
     if (lookups.results.length) await put(client, bucket, `${REPUTATION_PREFIX}dt=${isoDay(now)}/${checked.replace(/[-:]/g, '')}.json`, lookups.results);
     for (const result of lookups.results) reputation.set(result.ip, result);
+    // Saved at once, so no later run looks these IPs up again even if this one fails further on.
+    if (lookups.results.length) await features.saveReputation();
     Object.assign(abuse, { wanted: queue.length, checked: lookups.results.length, left: queue.length - lookups.results.length, failures: lookups.failures, stopped: lookups.stopped });
   }
   for (const result of lookups.results) {
@@ -354,9 +388,11 @@ async function classify(days, now, env, bucket, client, deps) {
     await put(client, bucket, `${BOTS_PREFIX}dt=${day}/bots.json`, bots);
     for (const bot of bots) counts[bot.reason]++;
   }
-  const summary = { from: days[days.length - 1], to: days[0], days: byDay.size, ips: rows.length, bots: counts, abuseipdb: abuse };
+  // Last, so a run that fails earlier reads its new log files again next time.
+  await features.save();
+  const summary = { from: days[days.length - 1], to: days[0], days: byDay.size, ips: rows.length, files_read: features.read, bots: counts, abuseipdb: abuse };
   console.log(JSON.stringify({ message: 'Bot classification finished', ...summary }));
   return summary;
 }
 
-module.exports = { STATUS_KEY, RUNS_PREFIX, DAILY_LIMIT, DEFAULT_DAYS, readStatus, ABUSE_SCORE, DATA_CENTER, MAX_CHECKS, PAGE_FILE, PROBE, RateLimited, apiKey, check, daysToClassify, featuresSql, isAbusive, toResult, update, validIp, verdict };
+module.exports = { REPUTATION_CACHE_KEY: state.REPUTATION_CACHE_KEY, STATUS_KEY, RUNS_PREFIX, DAILY_LIMIT, DEFAULT_DAYS, RUN_STALE_MS, isRunning, readStatus, ABUSE_SCORE, DATA_CENTER, PAGE_FILE, PROBE, RateLimited, apiKey, check, daysToClassify, isAbusive, loadFeatures, reputationSql, toResult, update, validIp, verdict };

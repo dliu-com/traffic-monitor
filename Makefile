@@ -28,7 +28,7 @@ update-hosting:
 	aws lambda invoke --region $(AWS_REGION) --function-name $$fn --cli-read-timeout 90 /dev/stdout --query FunctionError --output text \
 		|| echo "Hosting list update failed; the dashboard keeps the last copy."
 
-# Judge bots now for the last DAYS full days (default 3; it also runs daily at 00:30 UTC).
+# Judge bots now for today and the DAYS days before (default 3, at most 7; it also runs every 6 hours).
 # Runs in the background; the dashboard shows when it finishes.
 DAYS ?= 3
 classify-bots:

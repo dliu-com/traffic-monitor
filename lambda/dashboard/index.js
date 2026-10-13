@@ -4,7 +4,7 @@ const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
 const { loadHosting } = require('./hosting');
-const { STATUS_KEY, readStatus } = require('./bots');
+const { STATUS_KEY, isRunning, readStatus } = require('./bots');
 const { readRuns, reputationQueries, summarize } = require('./abuse');
 const { BadRequest, PAGE_MAX, botQueries, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
 
@@ -38,9 +38,6 @@ function errorPage(statusCode, message, cookies) {
   };
 }
 
-// A run longer than the classifier's 15-minute timeout has died, so another may start.
-const RUN_STALE_MS = 16 * 60 * 1000;
-
 let s3Client;
 let lambdaClient;
 const s3 = () => {
@@ -57,8 +54,6 @@ const lambdaApi = () => {
   }
   return lambdaClient;
 };
-
-const isRunning = (status, now) => Boolean(status && status.state === 'running' && now - Date.parse(status.started) < RUN_STALE_MS);
 
 // "Check bots now": starts the bot classifier in the background (last 3 days plus today) unless a run is going.
 async function startBotRun(deps, now) {

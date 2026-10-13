@@ -18,7 +18,7 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.
   - `/bots` **Bots** (signed in) – bot records for the last 3 days or a custom range, with **Check bots now**;
-    `/abuse-check` **AbuseIPDB check** (signed in) – daily lookups used, IPs waiting and what the lookups found.
+    `/abuse-check` **AbuseIPDB check** (signed in) – lookups used per day, IPs waiting and what the lookups found.
   - Bots are left out of every widget by default; the All sites page always leaves them out. **Include bots** (on the Site and Page pages) adds them
     back, highlighted; the choice is kept in a `dl_dash_bots` cookie for a year and sent to the API as `bots=include`.
     The IP page always includes them.
@@ -112,17 +112,20 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
 - A request is a bot if its user agent is empty, `-`, or looks like a crawler or script (checked in every query), or if
-  the daily bot check flagged its IP for that UTC day. CloudFront itself doesn't flag bots. Visitor IDs are worked out
+  the bot check (every 6 hours) flagged its IP for that UTC day. CloudFront itself doesn't flag bots. Visitor IDs are worked out
   before bots are dropped. Rules and quota handling are documented at `/detect-bot` (`web/detect-bot.js`).
-- The `BotClassifier` Lambda (`lambda/dashboard/bots.js`) runs at 00:30 UTC, after `make deploy`, from the dashboard's
-  "Check bots now" button (which also covers today) or with `make classify-bots DAYS=N` (default 7, up to 400). For each
-  day and IP it picks the first matching reason: `hosting` (ASN on the hosting list), `probe` (asked for paths like
+- The `BotClassifier` Lambda (`lambda/dashboard/bots.js`) runs every 6 hours (00:30, 06:30, 12:30 and 18:30 UTC), after
+  `make deploy`, from the dashboard's "Check bots now" button or with `make classify-bots DAYS=N` (default 3, up to 7). It
+  covers today and the DAYS days before; a scheduled run skips while another is going. It reads only log files no earlier
+  run has read and adds them to running counts per day and IP in `bot-state/dt=<day>.json` (`lambda/dashboard/bot-state.js`,
+  kept 7 days), so no log record is read twice and no Athena query is needed. For each day and IP it picks the first matching reason: `hosting` (ASN on the hosting list), `probe` (asked for paths like
   `/.env` or `wp-login`), `abuse` (AbuseIPDB score ≥ 50, Tor, or data centre) or `headless` (no script, stylesheet,
   font or `dl_vid` cookie all day). Verdicts go to `bots/dt=<day>/bots.json` (Glue table `bot_ips`).
 - AbuseIPDB (free plan, 1,000 lookups a day): store the key with `make set-abuseipdb-key` (SSM SecureString
-  `/traffic-monitor/abuseipdb-api-key`). Only IPs that still look like people are looked up, each at most once per run
-  and once per 30 days, newest day and busiest first, at most 900 per run; a run stops at HTTP 429 or when no lookups
-  are left, and the rest wait for the next run. Results go to `reputation/dt=<day>/` (table `ip_reputation`) for 180 days.
+  `/traffic-monitor/abuseipdb-api-key`). Only IPs that still look like people are looked up, each once per 30 days
+  across all runs, newest day and busiest first. The day's runs share the 1,000 lookups (counted from
+  `abuseipdb/runs/`); a run stops at HTTP 429 or when none are left, and the rest wait for a later run. Results go to
+  `reputation/dt=<day>/` (table `ip_reputation`) for 180 days, and the latest per IP to `bot-state/reputation.json`.
   Only the IP is sent. Without a key every other rule still runs.
 - The `LogMerge` Lambda (`lambda/dashboard/compact.js`) runs at 01:30 UTC. Once the bot check has finished with a day
   (4 days old), it merges each site's files for that day into `archive/month=<YYYY-MM>/<site>_<day>.gz` (Glue table

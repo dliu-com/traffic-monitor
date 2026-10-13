@@ -2,7 +2,7 @@
 
 // Daily log merge (handler `compact.update`, runs at 01:30 UTC, after the 00:30 bot check).
 // CloudFront writes hundreds of small log files a day, and Athena is paid per file it reads. Once the bot
-// check has finished its last pass over a day (each run re-judges the last 3 days), that day's files for
+// check has finished its last pass over a day (each run re-judges today and the 3 days before), that day's files for
 // each site are merged into one file in a folder per month, archive/month=<YYYY-MM>/<site>_<day>.gz
 // (Glue table cloudfront_logs_archive; Athena also pays per folder it lists), and the bots' requests are
 // deleted for good: the same rule as the dashboard (queries.js): a crawler, script or missing user agent,
@@ -15,7 +15,8 @@
 // CloudFront's request ID, so a rerun after a failure (or a late log file) merges again without double counting.
 // A day is merged only if the last bot check finished and started at least 3 days after it.
 const zlib = require('zlib');
-const { BOT, CATCH_UP_DAYS, COMPLETE_DAYS, isoDay, settings } = require('./queries');
+const { CATCH_UP_DAYS, COMPLETE_DAYS, isoDay, settings } = require('./queries');
+const { COLUMNS, gunzipIfNeeded, isAgent, isLogFile, listKeys, parseLog, readObject } = require('./logfile');
 const { readStatus } = require('./bots');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -26,22 +27,10 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 400;
 const ARCHIVE_PREFIX = 'archive/';
 const archiveKey = (site, day) => `${ARCHIVE_PREFIX}month=${day.slice(0, 7)}/${site}_${day}.gz`;
-// The 36 log columns in table order: CloudFront's 33 standard fields, then the 3 the partitioner adds
-// (lambda/partitioner/fields.json; a test keeps the two lists equal).
-const COLUMNS = [
-  'date', 'time', 'x-edge-location', 'sc-bytes', 'c-ip', 'cs-method', 'cs(Host)', 'cs-uri-stem',
-  'sc-status', 'cs(Referer)', 'cs(User-Agent)', 'cs-uri-query', 'cs(Cookie)', 'x-edge-result-type',
-  'x-edge-request-id', 'x-host-header', 'cs-protocol', 'cs-bytes', 'time-taken', 'x-forwarded-for',
-  'ssl-protocol', 'ssl-cipher', 'x-edge-response-result-type', 'cs-protocol-version', 'fle-status',
-  'fle-encrypted-fields', 'c-port', 'time-to-first-byte', 'x-edge-detailed-result-type',
-  'sc-content-type', 'sc-content-len', 'sc-range-start', 'sc-range-end',
-  'c-country', 'asn', 'viewer-response-log-data',
-];
 const HEADER = `#Version: 1.0\n#Fields: ${COLUMNS.join(' ')} site dt\n`;
 const IP = COLUMNS.indexOf('c-ip');
 const UA = COLUMNS.indexOf('cs(User-Agent)');
 const REQUEST_ID = COLUMNS.indexOf('x-edge-request-id');
-const BOT_UA = new RegExp(BOT);
 
 let s3Client;
 const s3 = () => {
@@ -51,45 +40,6 @@ const s3 = () => {
   }
   return s3Client;
 };
-
-// Like Athena's url_decode, but never throws on a malformed escape.
-function urlDecode(value) {
-  try {
-    return decodeURIComponent(value.replace(/\+/g, ' '));
-  } catch {
-    return value;
-  }
-}
-
-// The same test as the dashboard's "agent" reason: no user agent, or a crawler or script.
-function isAgent(ua) {
-  const decoded = urlDecode(ua || '');
-  return decoded === '' || decoded === '-' || BOT_UA.test(decoded.toLowerCase());
-}
-
-// One log file's rows, in table column order. Columns are matched by the file's #Fields header, so older
-// files without the 3 added columns get '-' for them.
-function parseLog(text) {
-  let names = COLUMNS;
-  const rows = [];
-  for (const line of text.split('\n')) {
-    const trimmed = line.replace(/\r$/, '');
-    if (trimmed.startsWith('#Fields:')) {
-      names = trimmed.slice('#Fields:'.length).trim().split(/\s+/);
-      continue;
-    }
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const values = trimmed.split('\t');
-    const byName = new Map(names.map((name, i) => [name, values[i]]));
-    rows.push(COLUMNS.map((name) => {
-      const value = byName.get(name);
-      return value === undefined || value === '' ? '-' : value;
-    }));
-  }
-  return rows;
-}
-
-const gunzipIfNeeded = (buffer) => (buffer.length > 1 && buffer[0] === 0x1f && buffer[1] === 0x8b ? zlib.gunzipSync(buffer) : buffer);
 
 // Keeps people's rows and drops bots' rows and repeated requests (same CloudFront request ID).
 function mergeRows(files, botIps) {
@@ -135,24 +85,6 @@ function daysToMerge(event, now, status) {
   return days;
 }
 
-async function listKeys(client, bucket, prefix) {
-  const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
-  const keys = [];
-  let token;
-  do {
-    const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
-    for (const object of page.Contents || []) keys.push(object.Key);
-    token = page.IsTruncated ? page.NextContinuationToken : undefined;
-  } while (token);
-  return keys;
-}
-
-async function readObject(client, bucket, key) {
-  const { GetObjectCommand } = require('@aws-sdk/client-s3');
-  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-  return Buffer.from(await result.Body.transformToByteArray());
-}
-
 // The IPs judged bots on a day, or null when that day has not been judged (then it is not merged).
 async function botIpsFor(client, bucket, day) {
   try {
@@ -174,7 +106,7 @@ async function botIpsFor(client, bucket, day) {
 // log file), into the archive file; then deletes the daily files.
 async function mergeDay(client, bucket, site, day, botIps, dryRun) {
   const prefix = `logs/site=${site}/dt=${day}/`;
-  const keys = (await listKeys(client, bucket, prefix)).filter((key) => key.endsWith('.gz') || key.endsWith('.log'));
+  const keys = (await listKeys(client, bucket, prefix)).filter(isLogFile);
   if (!keys.length) return null;
   const target = archiveKey(site, day);
   const files = [];

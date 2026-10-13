@@ -525,7 +525,13 @@ describe('abuse-check', () => {
     expect(out.today).toEqual({ looked_up: 66, remaining: 934, limit_hit: false });
     expect(out.runs[1]).toMatchObject({ day: '2026-10-08', looked_up: 900, limit_hit: true });
     expect(out.waiting).toBe(5);
-    expect(out.next_run).toBe('2026-10-10T00:30:00.000Z');
+    expect(out.next_run).toBe('2026-10-09T18:30:00.000Z');
+    expect(summarize(runs, Date.UTC(2026, 9, 9, 18, 30)).next_run).toBe('2026-10-10T00:30:00.000Z');
+    expect(summarize(runs, Date.UTC(2026, 9, 9, 0, 0)).next_run).toBe('2026-10-09T00:30:00.000Z');
+    // The next run covers its day and the 3 before: 10-06 is still queued until tonight's 00:30 run.
+    const latest = run('2026-10-09T12:30:00.000Z', 'schedule', '2026-10-06', '2026-10-09', { '2026-10-09': c({ left: 1 }), '2026-10-06': c({ left: 2 }) });
+    expect(summarize([...runs, latest], NOW).waiting).toBe(3);
+    expect(summarize([...runs, latest], Date.UTC(2026, 9, 9, 19, 0)).waiting).toBe(1);
     const day = (d) => out.days.find((r) => r.day === d);
     expect(day('2026-10-07')).toMatchObject({ looked_up: 30, abusive: 1, left: 0, dropped: null });
     expect(day('2026-10-05').dropped).toBe(4);

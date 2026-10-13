@@ -23,7 +23,7 @@ add('p', 'What the monitor costs with nobody using the dashboard: recording ever
 root.append(table(['Part', 'How it is billed', 'Typical month'], [
   ['S3 requests', 'About 11,000 log files a month (about 350 a day); each is written, read, filed and deleted once ($0.005 per 1,000 writes)', num('≈ $0.11')],
   ['Public statistics', 'Three Athena queries a day, at 02:00 UTC, write the 7, 30 and 90-day totals guests see', num('≈ $0.08')],
-  ['Bot check Lambda', 'One run a day at 00:30 UTC (about a minute), plus Check bots now, and one Athena query each', num('≈ $0.02')],
+  ['Bot check Lambda', 'Every 6 hours, plus Check bots now; each run reads only the log files no earlier run has read, with no Athena query', num('≈ $0.02')],
   ['Daily log merge', 'At 01:30 UTC merges each site\'s day into one file in a folder per month and deletes bots\' requests', num('≈ $0.01')],
   ['S3 storage, CloudWatch logs, weekly hosting list', 'Gzipped logs of about 25 MB a month, kept for one year; Lambda logs kept one month', num('≈ $0.01')],
   ['CloudFront log delivery (standard logging v2)', '$0.25 per GB of log lines delivered to S3; a few MB a month at this traffic', num('< $0.01')],

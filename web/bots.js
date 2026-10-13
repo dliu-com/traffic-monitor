@@ -99,7 +99,7 @@ page.append(
   el('div', { class: 'page-head' }, [el('h2', { text: 'Bots' }), el('div', { class: 'page-tools' }, [botCheck(load), periodBar(load, { ranges: ['24h', '3d'] })])]),
   periodNote,
   el('p', { class: 'period-note' }, [
-    'Bot records are kept for the last 3 days; the daily log merge then deletes them for good. Until the bot check has run, today\'s requests count as bots only by user agent. ',
+    'Bot records are kept for the last 3 days; the daily log merge then deletes them for good. Until the next bot check (every 6 hours), new requests count as bots only by user agent. ',
     el('a', { href: '/detect-bot', text: 'How bots are detected' }), ' · ', el('a', { href: '/abuse-check', text: 'AbuseIPDB check' }), '.',
   ]),
   kpiBox,

@@ -40,7 +40,7 @@ root.append(tiers({
       label: 'Visitors', badge: 'Internet', tone: 'untrusted',
       nodes: [
         { icon: 'browser', title: 'Browsers', text: 'People visiting any dliu.com site' },
-        { icon: 'bot', title: 'Bots', text: 'Crawlers, scanners and cloud-hosted traffic, flagged by a daily check and hidden unless you include them' },
+        { icon: 'bot', title: 'Bots', text: 'Crawlers, scanners and cloud-hosted traffic, flagged by a check every 6 hours and hidden unless you include them' },
       ],
     },
     {
@@ -156,7 +156,7 @@ root.append(tiers({
 
 section('Read more');
 root.append(cards([
-  ['/detect-bot', 'bot', 'Bot detection', 'The rules that tell bots from people, and the daily check', '5 rules · AbuseIPDB · daily'],
+  ['/detect-bot', 'bot', 'Bot detection', 'The rules that tell bots from people, and the check every 6 hours', '5 rules · AbuseIPDB · every 6 hours'],
   ['/cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.23 a month · guests free'],
   ['/security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
   ['https://github.com/dliu-com/traffic-monitor', 'code', 'Source code', 'The CDK stack, Lambdas, functions and these pages', 'Public on GitHub'],
@@ -182,13 +182,13 @@ detailList('Components', [
   'Log bucket: the partitioner Lambda (Node.js) reorders each file’s columns by its #Fields header, gzips it into logs/site=<site>/dt=<day>/ and deletes the raw file. Only the log delivery service of this account may write to raw-v2/. At 01:30 UTC the log merge turns each day the bot check has finished with (4 days old) into one file per site in archive/month=<YYYY-MM>/, without the bots\' requests, and deletes that day\'s files; the dashboard reads the last 7 days from the daily folders and older days from the month folders.',
   'Glue tables cloudfront_logs (partition projection over site and day) and cloudfront_logs_archive (over month), so no crawler or partition updates are needed.',
   'Athena workgroup traffic with an enforced 1 GB scan cutoff and 5-minute result reuse.',
-  'Bot check: a Node.js Lambda run daily at 00:30 UTC by EventBridge, or from the dashboard, writes per-day bot verdicts and AbuseIPDB results to the log bucket, read through two more Glue tables.',
+  'Bot check: a Node.js Lambda run every 6 hours by EventBridge, or from the dashboard, reads only log files no earlier run has read (keeping running counts in bot-state/) and writes per-day bot verdicts and AbuseIPDB results to the log bucket, read through two more Glue tables.',
   'Dashboard: static HTML, CSS and JavaScript in a private S3 bucket behind CloudFront; /api/* and /auth/* go to a Node.js Lambda function URL secured with IAM and origin access control.',
 ]);
 detailList('Data and retention', [
   'Each log line has 36 fields; the dashboard uses time, IP, country, city, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
   'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs); others have no city.',
-  'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. A request is a bot if its user agent is missing or names a crawler or script, or if a daily check flagged its IP for that day: a cloud, hosting or VPN network, scanning for weak spots, reported on AbuseIPDB, or never loading a page’s scripts, styles or cookie. The rules are on the Bot detection page. CloudFront does not flag bots itself. Bots are left out of every widget unless Include bots is ticked; that choice is remembered in a cookie for a year. The IP page always shows everything.',
+  'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. A request is a bot if its user agent is missing or names a crawler or script, or if the bot check (every 6 hours) flagged its IP for that day: a cloud, hosting or VPN network, scanning for weak spots, reported on AbuseIPDB, or never loading a page’s scripts, styles or cookie. The rules are on the Bot detection page. CloudFront does not flag bots itself. Bots are left out of every widget unless Include bots is ticked; that choice is remembered in a cookie for a year. The IP page always shows everything.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
   'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',
 ]);

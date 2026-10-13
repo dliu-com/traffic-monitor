@@ -53,7 +53,7 @@ export function botToggle(onChange) {
     setIncludeBots(input.checked);
     onChange();
   });
-  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the daily check. Bot records are kept for the last 3 days only. See the Bots page.' }, [input, ' Include bots']);
+  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the next bot check (every 6 hours). Bot records are kept for the last 3 days only. See the Bots page.' }, [input, ' Include bots']);
 }
 
 // Why a request or IP counts as a bot (see /detect-bot).
@@ -69,7 +69,7 @@ export const botReasonText = (reasons) => String(reasons || '').split(',').filte
 // The empty-body hash CloudFront's origin access control needs for a POST to the Lambda URL.
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-// "Check bots now": starts the bot check (last 3 days plus today) and shows when it last ran.
+// "Check bots now": starts the bot check (today and the 3 days before) and shows when it last ran.
 // onDone reloads the page's widgets when a run this page is watching finishes.
 export function botCheck(onDone) {
   const button = el('button', { type: 'button', class: 'bot-check', text: 'Check bots now' });

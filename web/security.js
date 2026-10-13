@@ -161,7 +161,7 @@ detailList('AWS', [
   'Athena workgroup settings are enforced, so a query cannot raise its own scan limit',
   'CloudFront log deliveries (us-east-1) write to the log bucket through delivery.logs.amazonaws.com, limited by the bucket policy to raw-v2/*, bucket-owner-full-control, this account and its own delivery sources',
   'The partitioner can only read and delete raw files and write logs/; it deletes each raw-v2 file once it has been filed',
-  'The bot check Lambda can read logs/ and hosting/, read and write bots/ and reputation/, read the AbuseIPDB key and run queries in the traffic workgroup',
+  'The bot check Lambda can read logs/ and hosting/, read and write bots/, reputation/, bot-state/ and abuseipdb/runs/, read the AbuseIPDB key and run queries in the traffic workgroup',
   'The dashboard Lambda can read logs/, archive/, bots/, reputation/ and abuseipdb/, write only bots/status.json and start the bot check Lambda',
   'The log merge Lambda can read logs/, bots/ and archive/, write only archive/ and delete only logs/; it cannot run queries',
 ]);

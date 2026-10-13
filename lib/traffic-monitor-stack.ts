@@ -98,6 +98,8 @@ export class TrafficMonitorStack extends Stack {
         { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
         { id: 'expire-abuseipdb-runs', prefix: 'abuseipdb/runs/', expiration: Duration.days(120) },
+        // The bot check's per-day counts are needed for 4 days (bots.js); bot-state/reputation.json is kept.
+        { id: 'expire-bot-check-state', prefix: 'bot-state/dt=', expiration: Duration.days(7) },
         { id: 'abort-multipart', abortIncompleteMultipartUploadAfter: Duration.days(1) },
       ],
     });
@@ -249,7 +251,7 @@ export class TrafficMonitorStack extends Stack {
     });
     archiveTable.addResourceDependency(database);
 
-    // JSON-lines tables written by the daily bot classifier (lambda/dashboard/bots.js), one folder per day.
+    // JSON-lines tables written by the bot classifier (lambda/dashboard/bots.js), one folder per day.
     const jsonTable = (id: string, name: string, prefix: string, columns: Array<[string, string]>) => {
       const t = new glue.CfnTable(this, id, {
         catalogId: this.account,
@@ -383,7 +385,8 @@ export class TrafficMonitorStack extends Stack {
       targets: [new eventTargets.LambdaFunction(hostingUpdater, { retryAttempts: 2 })],
     });
 
-    // Daily bot classifier: per-day bot verdicts for each IP, with AbuseIPDB lookups (bots.js).
+    // Bot classifier, every 6 hours: per-day bot verdicts for each IP, with AbuseIPDB lookups (bots.js). It reads
+    // each log file once, keeping running counts in bot-state/ (bot-state.js).
     const botClassifier = new lambda.Function(this, 'BotClassifier', {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'bots.update',
@@ -401,6 +404,7 @@ export class TrafficMonitorStack extends Stack {
         PARAMETER_PREFIX,
         HOSTING_BUCKET: logBucket.bucketName,
         BOTS_BUCKET: logBucket.bucketName,
+        SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
       },
       logGroup: new logs.LogGroup(this, 'BotClassifierLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
@@ -422,11 +426,12 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantRead(botClassifier, HOSTING_KEY);
     logBucket.grantReadWrite(botClassifier, 'bots/*');
     logBucket.grantReadWrite(botClassifier, 'reputation/*');
-    logBucket.grantPut(botClassifier, 'abuseipdb/runs/*');
+    logBucket.grantReadWrite(botClassifier, 'abuseipdb/runs/*');
+    logBucket.grantReadWrite(botClassifier, 'bot-state/*');
     resultsBucket.grantReadWrite(botClassifier);
-    new events.Rule(this, 'BotClassifierDaily', {
-      description: 'Judge the last 3 days of IPs as bots or people, just after midnight UTC',
-      schedule: events.Schedule.cron({ hour: '0', minute: '30' }),
+    new events.Rule(this, 'BotClassifierSchedule', {
+      description: 'Judge today\'s and the last 3 days\' IPs as bots or people, every 6 hours',
+      schedule: events.Schedule.cron({ hour: '0/6', minute: '30' }),
       targets: [new eventTargets.LambdaFunction(botClassifier, { retryAttempts: 2 })],
     });
     // The dashboard's "Check bots now" button starts a run and reads its status.
