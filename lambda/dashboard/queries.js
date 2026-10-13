@@ -2,7 +2,7 @@
 
 // All user input is validated against strict allowlists/patterns before it is placed in SQL.
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGE_HOURS = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 };
+const RANGE_HOURS = { '24h': 24, '3d': 3 * 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 };
 const MAX_CUSTOM_DAYS = 366;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z$/;
@@ -20,20 +20,29 @@ const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
 
+// Log layout (compact.js): the newest COMPLETE_DAYS days (plus today) keep every request in daily folders,
+// logs/site=<site>/dt=<day>/. The daily merge moves days COMPLETE_DAYS+1 .. COMPLETE_DAYS+CATCH_UP_DAYS old,
+// bots removed, to one file per site and day in a folder per month, archive/month=<YYYY-MM>/ (Glue table
+// cloudfront_logs_archive). Athena pays for every folder it lists, so queries read daily folders only for
+// the days the merge may not have moved yet, and the archive (a few month folders) for the rest.
+const COMPLETE_DAYS = 3;
+const CATCH_UP_DAYS = 4;
+
 class BadRequest extends Error {}
 
 function settings(env = process.env) {
   const database = env.GLUE_DATABASE || 'traffic';
   const table = env.GLUE_TABLE || 'cloudfront_logs';
+  const archiveTable = env.GLUE_ARCHIVE_TABLE || 'cloudfront_logs_archive';
   const botsTable = env.GLUE_BOTS_TABLE || 'bot_ips';
   const reputationTable = env.GLUE_REPUTATION_TABLE || 'ip_reputation';
-  if (![database, table, botsTable, reputationTable].every((name) => IDENTIFIER.test(name))) throw new Error('Invalid Glue identifiers');
+  if (![database, table, archiveTable, botsTable, reputationTable].every((name) => IDENTIFIER.test(name))) throw new Error('Invalid Glue identifiers');
   const siteHosts = {};
   for (const entry of String(env.SITES || '').split(',')) {
     const [key, host] = entry.split('=').map((s) => s.trim());
     if (key) siteHosts[key] = host || key;
   }
-  return { database, table, botsTable, reputationTable, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
+  return { database, table, archiveTable, botsTable, reputationTable, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
 }
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -43,7 +52,7 @@ const sqlTime = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' '
 const unitFor = (ms) => (ms <= 3 * 3600e3 ? 'minute' : ms <= 3 * DAY_MS ? 'hour' : 'day');
 
 // Returns the site, country, whether bots are included, the days to read (log partitions) and an optional
-// exact [since, until) window in UTC. Bots are left out unless bots=include.
+// exact [since, until) window in UTC. Bots are left out unless bots=include; bots=only keeps just the bots.
 function parseFilters(query = {}, now = Date.now(), env = process.env) {
   const { sites } = settings(env);
   const site = query.site || 'all';
@@ -51,8 +60,8 @@ function parseFilters(query = {}, now = Date.now(), env = process.env) {
   const country = query.country || null;
   if (country !== null && !COUNTRY.test(country)) throw new BadRequest('Unknown country');
   const bots = query.bots || 'hide';
-  if (bots !== 'hide' && bots !== 'include') throw new BadRequest('bots must be hide or include');
-  return { site, country, bots, ...timeWindow(query, now) };
+  if (!['hide', 'include', 'only'].includes(bots)) throw new BadRequest('bots must be hide, include or only');
+  return { site, country, bots, now, ...timeWindow(query, now) };
 }
 
 function timeWindow(query, now) {
@@ -88,10 +97,48 @@ function timeWindow(query, now) {
 //   agent - a crawler or script by user agent, or no user agent (caught as requests arrive)
 //   hosting, probe, abuse, headless - the IP was judged a bot for that day by the daily job (bots.js);
 //     requests from the current day count as people until that job runs after midnight UTC
-// Bots are dropped (after visitor IDs are worked out) unless filters.bots is 'include'.
+// Bots are dropped (after visitor IDs are worked out) unless filters.bots is 'include'; 'only' drops the people.
+// Archived days hold people only (the merge deleted their bots), so bots=only finds nothing there.
+const LOG_FIELDS = ['date', 'time', 'c_ip', 'cs_method', 'x_host_header', 'cs_uri_stem', 'sc_status', 'cs_referrer',
+  'cs_user_agent', 'cs_cookie', 'vid_log', 'x_edge_result_type', 'sc_bytes', 'c_country', 'asn', 'site', 'dt'];
+
+// Which days to read from the daily folders and which from the archive. A day can briefly be in both (between
+// the merge writing the archive file and deleting the daily files); the next merge run removes the daily copy.
+function layout(filters) {
+  const now = filters.now ?? Date.now();
+  const dailyFrom = isoDay(now - (COMPLETE_DAYS + CATCH_UP_DAYS) * DAY_MS);
+  const archiveTo = isoDay(now - (COMPLETE_DAYS + 1) * DAY_MS);
+  const max = (a, b) => (a > b ? a : b);
+  const min = (a, b) => (a < b ? a : b);
+  const daily = { from: max(filters.startDay, dailyFrom), to: filters.endDay };
+  const archive = { from: filters.startDay, to: min(filters.endDay, archiveTo) };
+  return { daily: daily.from <= daily.to ? daily : null, archive: archive.from <= archive.to ? archive : null };
+}
+
+function logSource(filters, settingsValue) {
+  const { database, table, archiveTable } = settingsValue;
+  const { daily, archive } = layout(filters);
+  const siteFilter = filters.site === 'all' ? '' : ` AND site = '${filters.site}'`;
+  const fields = LOG_FIELDS.map((f) => `"${f}"`).join(', ');
+  const parts = [];
+  if (daily) {
+    parts.push(`SELECT ${fields} FROM "${database}"."${table}"
+    WHERE dt BETWEEN '${daily.from}' AND '${daily.to}'${siteFilter}`);
+  }
+  if (archive) {
+    parts.push(`SELECT ${fields} FROM "${database}"."${archiveTable}"
+    WHERE month BETWEEN '${archive.from.slice(0, 7)}' AND '${archive.to.slice(0, 7)}'
+      AND dt BETWEEN '${archive.from}' AND '${archive.to}'${siteFilter}`);
+  }
+  return { sql: parts.join('\n    UNION ALL\n    '), daily };
+}
+
 function base(filters, env = process.env) {
-  const { database, table, botsTable } = settings(env);
-  const siteFilter = filters.site === 'all' ? '' : `\n      AND site = '${filters.site}'`;
+  const config = settings(env);
+  const { database, botsTable } = config;
+  const source = logSource(filters, config);
+  // Bot verdicts only matter for days still in daily folders: archived days have no bots left.
+  const botDays = source.daily || { from: filters.startDay, to: filters.startDay };
   const countryFilter = !filters.country ? ''
     : filters.country === 'unknown' ? `\n      AND coalesce(c_country, '-') = '-'` : `\n      AND c_country = '${filters.country}'`;
   const window = [];
@@ -101,8 +148,10 @@ function base(filters, env = process.env) {
   return `WITH b AS (
     SELECT dt AS bot_dt, ip AS bot_ip, max(reason) AS flagged
     FROM "${database}"."${botsTable}"
-    WHERE dt BETWEEN '${filters.startDay}' AND '${filters.endDay}'
+    WHERE dt BETWEEN '${botDays.from}' AND '${botDays.to}'${source.daily ? '' : ' AND false'}
     GROUP BY dt, ip
+  ), l AS (
+    ${source.sql}
   ), r AS (
     SELECT site,
       from_iso8601_timestamp(concat(cast("date" AS varchar), 'T', time, 'Z')) AS ts,
@@ -121,8 +170,7 @@ function base(filters, env = process.env) {
       nullif(c_country, '-') AS country,
       CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn,
       flagged
-    FROM "${database}"."${table}" LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip
-    WHERE dt BETWEEN '${filters.startDay}' AND '${filters.endDay}'${siteFilter}${countryFilter}
+    FROM l LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip${countryFilter ? `\n    WHERE true${countryFilter}` : ''}
   ), w AS (
     SELECT *,
       CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw END AS city,
@@ -135,7 +183,7 @@ function base(filters, env = process.env) {
       coalesce(visitor_id, concat('ip:', ip)) AS visitor,
       bot_reason IS NOT NULL AS is_bot,
       (method = 'GET' AND status < 400 AND NOT regexp_like(lower(path), '${ASSET}') AND NOT starts_with(path, '/api/')) AS is_page
-    FROM w${filters.bots === 'include' ? '' : '\n    WHERE bot_reason IS NULL'}
+    FROM w${filters.bots === 'include' ? '' : filters.bots === 'only' ? '\n    WHERE bot_reason IS NOT NULL' : '\n    WHERE bot_reason IS NULL'}
   )`;
 }
 
@@ -301,6 +349,15 @@ GROUP BY ip`,
       order: 'last_seen DESC, ip',
     };
   },
+  // The user agents bots sent, busiest first (the Bots page).
+  agents: () => ({
+    sql: `SELECT ua, count(*) AS requests, count(DISTINCT ip) AS ips,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('max(ts)')} AS last_seen, ${REASON}
+FROM v GROUP BY ua`,
+    search: ['ua', 'sites'],
+    order: 'requests DESC, ua',
+  }),
   cookies: (q) => ({
     allSites: true,
     sql: `SELECT visitor_id, count(*) AS requests, count_if(is_page) AS pageviews,
@@ -360,6 +417,28 @@ HAVING count(*) > 0`,
   };
 }
 
+// The Bots page: what the bots did in the period (always bots only).
+function botQueries(filters, env = process.env) {
+  const cte = base({ ...filters, bots: 'only' }, env);
+  const unit = ['minute', 'hour', 'day'].includes(filters.unit) ? filters.unit : 'day';
+  return {
+    summary: `${cte}
+SELECT count(*) AS requests, count(DISTINCT ip) AS ips, count(DISTINCT ua) AS user_agents,
+  count(DISTINCT site) AS sites, count_if(status >= 400) AS errors,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v`,
+    timeseries: `${cte}
+SELECT ${TS(`date_trunc('${unit}', ts)`)} AS bucket, count(*) AS requests, count(DISTINCT ip) AS ips
+FROM v GROUP BY 1 ORDER BY 1`,
+    reasons: `${cte}
+SELECT bot_reason AS reason, count(*) AS requests, count(DISTINCT ip) AS ips
+FROM v GROUP BY 1 ORDER BY requests DESC, reason`,
+    sites: `${cte}
+SELECT site, count(*) AS requests, count(DISTINCT ip) AS ips, ${TS('max(ts)')} AS last_seen
+FROM v GROUP BY site ORDER BY requests DESC, site`,
+  };
+}
+
 // Summary and chart of one page on one site.
 function pageQueries(filters, pagePath, env = process.env) {
   if (filters.site === 'all') throw new BadRequest('Choose a site');
@@ -377,4 +456,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BOT, BadRequest, IP, PAGE_MAX, base, isoDay, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime };
+module.exports = { BOT, CATCH_UP_DAYS, COMPLETE_DAYS, BadRequest, IP, PAGE_MAX, base, botQueries, isoDay, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime };

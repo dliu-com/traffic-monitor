@@ -17,22 +17,27 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - `/page?site=<key>&path=<path>` **Page** – one page's views over time, its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.
-  - Bots are left out of every widget by default. **Include bots** (on the All sites, Site and Page pages) adds them
+  - `/bots` **Bots** (signed in) – bot records for the last 3 days or a custom range, with **Check bots now**;
+    `/abuse-check` **AbuseIPDB check** (signed in) – daily lookups used, IPs waiting and what the lookups found.
+  - Bots are left out of every widget by default; the All sites page always leaves them out. **Include bots** (on the Site and Page pages) adds them
     back, highlighted; the choice is kept in a `dl_dash_bots` cookie for a year and sent to the API as `bots=include`.
     The IP page always includes them.
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
   - Every widget loads on its own (`/api/overview`, `/api/page` and `/api/ip` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
 - **About** – `https://traffic.dliu.com/about`, public diagrams of the architecture, sign-in flow, cost and security.
+- **Running costs** – `https://traffic.dliu.com/cost`, public breakdown of the monthly bill and the cost per page load.
 - **Security** – `https://traffic.dliu.com/security`, the threat model, live penetration-test results and accepted risks.
 
 ```
 site CloudFront ──v2 logs──▶ S3 raw-v2/<site>/YYYY/MM/DD/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
         └─ viewer-response: dliu-visitor-id (sets dl_vid, logs it)
+                                                              log merge λ (01:30 UTC) ──▶ S3 archive/month=/<site>_<day>.gz ◀── Athena
 ```
 
-Cost at low traffic: roughly $0.10–0.40/month (log delivery at $0.25/GB, S3 requests and storage, Athena scans of a few MB,
-Lambda/CloudFront free tier) — about $2.60 a year with one peak day a week.
+Cost at low traffic: about $0.23/month without dashboard use (S3 requests for ~350 log files a day, the daily public
+stats, bot check and log merge); guests read pre-computed files for $0, and a signed-in dashboard page load costs about
+$0.005 (mostly S3 lists and reads by Athena). See `/cost`.
 
 ## Deploy
 
@@ -119,6 +124,14 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
   and once per 30 days, newest day and busiest first, at most 900 per run; a run stops at HTTP 429 or when no lookups
   are left, and the rest wait for the next run. Results go to `reputation/dt=<day>/` (table `ip_reputation`) for 180 days.
   Only the IP is sent. Without a key every other rule still runs.
+- The `LogMerge` Lambda (`lambda/dashboard/compact.js`) runs at 01:30 UTC. Once the bot check has finished with a day
+  (4 days old), it merges each site's files for that day into `archive/month=<YYYY-MM>/<site>_<day>.gz` (Glue table
+  `cloudfront_logs_archive`, partitioned by month; `site` and `dt` are columns), deletes the bots' requests for good
+  and then deletes the daily files. So the newest 3 days (plus today) hold every request, older days people only.
+  Athena pays for each folder it lists and file it reads, so a 90-day query lists about 4 month folders instead of
+  720 day folders. Queries read daily folders for the last 7 days and the archive for older days.
+  `make compact-logs FROM=YYYY-MM-DD TO=YYYY-MM-DD` merges older days once (`DRY=1` reports only; `UNJUDGED=1` also
+  merges days from before the bot check, dropping agent bots only).
 - The hosting network list (`lambda/dashboard/hosting.js`, about 950 ASNs) is a built-in core (AWS, Google, Azure,
   Oracle, DigitalOcean, OVH, Hetzner, Censys…) plus two public lists, [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list)
   and [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) (datacenter ASNs). The `HostingListUpdater` Lambda

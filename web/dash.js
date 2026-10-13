@@ -2,13 +2,19 @@
 // Every value from the logs is attacker-controlled, so it is only ever set with textContent.
 export const $ = (id) => document.getElementById(id);
 export const number = new Intl.NumberFormat();
-export const state = { siteHosts: {}, hosting: {} };
+// public: not signed in, so the page shows the pre-computed public figures (stats/<range>.json) only.
+// defaultRange: the period when the URL has none (the Bots page uses 3d).
+export const state = { siteHosts: {}, hosting: {}, public: false, defaultRange: '7d' };
 export const siteName = (key) => state.siteHosts[key] || key;
 export const fmt = (value) => number.format(Number(value) || 0);
 export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGES = [['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']];
+const RANGES = [['24h', '24 hours'], ['3d', '3 days'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']];
+// The buttons a period bar shows unless the page asks for others (the Bots page shows 24h and 3d).
+const DEFAULT_RANGES = ['24h', '7d', '30d', '90d'];
+// The public figures are pre-computed once a day for these ranges only.
+const PUBLIC_RANGES = ['7d', '30d', '90d'];
 const MAX_CUSTOM_DAYS = 366;
 const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java\/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse/i;
 
@@ -29,7 +35,10 @@ export function setStatus(text, isError) {
   $('status').className = isError ? 'error' : '';
 }
 
-// "Include bots" is remembered in a cookie (this dashboard only) and sent with every API call.
+// "Include bots" is remembered in a cookie (this dashboard only) and sent with the API calls of pages that
+// show the switch (Site, Page). Pages without it (All sites) always leave bots out.
+let hasToggle = false;
+const showBots = () => hasToggle && includeBots();
 const BOTS_COOKIE = 'dl_dash_bots';
 export const includeBots = () => document.cookie.split('; ').includes(`${BOTS_COOKIE}=include`);
 function setIncludeBots(on) {
@@ -38,12 +47,13 @@ function setIncludeBots(on) {
 }
 // The "Include bots" switch for a page; onChange reloads its widgets.
 export function botToggle(onChange) {
+  hasToggle = true;
   const input = el('input', { type: 'checkbox', checked: includeBots() });
   input.addEventListener('change', () => {
     setIncludeBots(input.checked);
     onChange();
   });
-  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the daily check. See /detect-bot.' }, [input, ' Include bots']);
+  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the daily check. Bot records are kept for the last 3 days only. See the Bots page.' }, [input, ' Include bots']);
 }
 
 // Why a request or IP counts as a bot (see /detect-bot).
@@ -59,7 +69,7 @@ export const botReasonText = (reasons) => String(reasons || '').split(',').filte
 // The empty-body hash CloudFront's origin access control needs for a POST to the Lambda URL.
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-// "Check bots now": starts the bot check (last week plus today) and shows when it last ran.
+// "Check bots now": starts the bot check (last 3 days plus today) and shows when it last ran.
 // onDone reloads the page's widgets when a run this page is watching finishes.
 export function botCheck(onDone) {
   const button = el('button', { type: 'button', class: 'bot-check', text: 'Check bots now' });
@@ -103,13 +113,17 @@ export function botCheck(onDone) {
     }
   });
   poll();
-  return el('div', { class: 'bot-check-box' }, [button, info]);
+  return el('div', { class: 'bot-check-box private-only' }, [button, info]);
 }
 // Wording for notes and hints that depends on the switch.
-export const botsNote = () => (includeBots() ? 'Bots are included and highlighted.' : 'Bots are left out; tick Include bots to see them.');
+export const botsNote = () => (showBots()
+  ? 'Bots are included and highlighted (bot records are kept for the last 3 days only).'
+  : hasToggle ? 'Bots are left out; tick Include bots to see them.' : 'Bots are left out (signed-in users can see them on the Bots page).');
 
 export async function api(path) {
-  if (includeBots() && /^\/api\/(overview|ip|page|list)\b/.test(path)) path += `${path.includes('?') ? '&' : '?'}bots=include`;
+  if (state.public) return publicApi(path);
+  const explicit = new URL(path, location.origin).searchParams.has('bots');
+  if (showBots() && !explicit && /^\/api\/(overview|ip|page|list)\b/.test(path)) path += `${path.includes('?') ? '&' : '?'}bots=include`;
   const response = await fetch(path, { credentials: 'same-origin', headers: { accept: 'application/json' } });
   if (response.status === 401) {
     const error = new Error('signed out');
@@ -122,6 +136,7 @@ export async function api(path) {
 }
 
 export function handleError(error) {
+  if (error.signedOut && state.public) return;
   if (error.signedOut) {
     $('page').hidden = true;
     $('account').hidden = true;
@@ -132,7 +147,8 @@ export function handleError(error) {
   setStatus(error.message, true);
 }
 
-export async function start(render) {
+// publicView: when not signed in, show the public figures instead of the sign-in box.
+export async function start(render, { publicView = false } = {}) {
   try {
     // Network names only label rows, so the page still works without them.
     const [me, hosting] = await Promise.all([api('/api/me'), api('/api/networks').catch(() => ({}))]);
@@ -143,9 +159,86 @@ export async function start(render) {
     $('page').hidden = false;
     await render();
   } catch (error) {
+    if (error.signedOut && publicView) return startPublic(render);
     handleError(error);
   }
 }
+
+// ---- public mode: the pre-computed totals in stats/<range>.json (see public-stats.js) ----
+// Only these widgets have public figures; every other call answers "signed out" and its widget stays hidden.
+const PUBLIC_PARTS = ['summary', 'timeseries', 'sites', 'site_series'];
+const statsFiles = new Map();
+function statsFile(range) {
+  if (!statsFiles.has(range)) {
+    const file = fetch(`/stats/${range}.json`, { headers: { accept: 'application/json' } }).then(async (response) => {
+      if (!response.ok) throw new Error('The public figures are not available right now. Please try again later.');
+      const data = await response.json();
+      data.records = data.rows.map((row) => Object.fromEntries(data.columns.map((column, i) => [column, row[i]])));
+      return data;
+    });
+    statsFiles.set(range, file);
+    file.catch(() => statsFiles.delete(range));
+  }
+  return statsFiles.get(range);
+}
+
+const signedOut = () => Object.assign(new Error('signed out'), { signedOut: true });
+const byVisitors = (a, b) => b.visitors - a.visitors || b.requests - a.requests || String(a.country).localeCompare(String(b.country));
+const byViews = (a, b) => b.pageviews - a.pageviews || b.requests - a.requests;
+
+// Answers the dashboard's API calls from the public file, in the same row shapes as the live API.
+async function publicApi(path) {
+  const url = new URL(path, location.origin);
+  const q = Object.fromEntries(url.searchParams);
+  const isList = url.pathname === '/api/list' && q.list === 'countries';
+  if (!isList && !(url.pathname === '/api/overview' && PUBLIC_PARTS.includes(q.part))) throw signedOut();
+  const file = await statsFile(period().range);
+  const p = showBots() ? '' : 'h_';
+  const site = q.site && q.site !== 'all' ? q.site : null;
+  const cc = q.country || null;
+  const rows = (keep) => file.records.filter(keep).map((r) => ({
+    site: r.site, country: r.country, bucket: r.bucket,
+    requests: r[`${p}requests`], pageviews: r[`${p}pageviews`], visitors: r[`${p}visitors`], ips: r[`${p}ips`],
+    errors: r[`${p}errors`], last_visit: r[`${p}last_visit`],
+  })).filter((r) => r.requests > 0);
+  const filters = { ...file.filters, site: site || 'all', country: cc, bots: showBots() ? 'include' : 'hide', generated: file.generated };
+  if (isList) {
+    const words = String(q.q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const all = rows((r) => r.site === site && r.country !== null && r.bucket === null)
+      .filter((r) => words.every((word) => r.country.toLowerCase().includes(word))).sort(byVisitors);
+    const offset = Math.max(0, parseInt(q.offset, 10) || 0);
+    const limit = Math.min(Math.max(1, parseInt(q.limit, 10) || 20), 100);
+    return { filters, offset, limit, total: all.length, rows: all.slice(offset, offset + limit) };
+  }
+  const pick = {
+    summary: () => rows((r) => r.site === site && r.country === cc && r.bucket === null),
+    timeseries: () => rows((r) => r.site === site && r.country === cc && r.bucket !== null),
+    sites: () => rows((r) => r.site !== null && r.country === cc && r.bucket === null).sort(byViews),
+    site_series: () => rows((r) => r.site !== null && r.country === cc && r.bucket !== null),
+  };
+  return { filters, rows: pick[q.part]() };
+}
+
+async function startPublic(render) {
+  state.public = true;
+  document.body.classList.add('public');
+  periodBars.forEach((bar) => bar.mark());
+  try {
+    const file = await statsFile(period().range);
+    state.siteHosts = file.sites || {};
+    $('signin').hidden = true;
+    $('signin-link').hidden = false;
+    $('page').hidden = false;
+    setStatus('');
+    await render();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+// " Public figures, updated …" for the period note (public mode only).
+export const updatedNote = (filters) => (filters.generated
+  ? ` Public totals for whole days up to yesterday (UTC), updated ${formatTime(filters.generated)}; sign in for today, custom periods and details.` : '');
 
 // Loads one widget on its own: shows a spinner over `node` until its data arrives,
 // and drops answers that come back after a newer request (e.g. the period changed again).
@@ -200,9 +293,11 @@ export function describeUA(ua) {
 // Relative ranges use ?range=; custom periods use ?from=&to= as UTC instants (YYYY-MM-DDTHH:MMZ).
 export function period() {
   const q = new URLSearchParams(location.search);
-  if (q.get('from') && q.get('to')) return { from: q.get('from'), to: q.get('to') };
+  // Custom periods are only for signed-in use; the public figures exist for the preset ranges.
+  if (!state.public && q.get('from') && q.get('to')) return { from: q.get('from'), to: q.get('to') };
   const range = q.get('range');
-  return { range: RANGES.some(([key]) => key === range) ? range : '7d' };
+  const known = state.public ? PUBLIC_RANGES.includes(range) : RANGES.some(([key]) => key === range);
+  return { range: known ? range : state.defaultRange };
 }
 
 // The country filter (?country=GB, or ?country=unknown) is kept in the URL as well.
@@ -248,6 +343,16 @@ function setPeriod(next) {
   history.replaceState(null, '', `${location.pathname}?${q}`);
 }
 
+// Period bars on the page, so a zoom on the chart or the browser's Back button updates them.
+const periodBars = [];
+function periodChanged() {
+  for (const bar of periodBars) {
+    bar.mark();
+    bar.onChange();
+  }
+}
+window.addEventListener('popstate', periodChanged);
+
 const formatMinute = (d) => `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const toInstant = (d) => `${d.toISOString().slice(0, 16)}Z`;
 
@@ -270,7 +375,7 @@ const zone = () => {
   return `UTC${offset >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 };
 
-export function periodBar(onChange) {
+export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
   const bar = el('div', { class: 'period', role: 'group', 'aria-label': 'Period' });
   const custom = el('form', { class: 'custom-dates', hidden: true, novalidate: true });
   const timeInput = (name, label) => el('input', {
@@ -297,8 +402,9 @@ export function periodBar(onChange) {
     }
   }
 
-  for (const [key, label] of [...RANGES, ['custom', 'Custom…']]) {
-    const button = el('button', { type: 'button', 'data-range': key, text: label });
+  for (const [key, label] of [...RANGES.filter(([key]) => ranges.includes(key)), ['custom', 'Custom…']]) {
+    const signedInOnly = key === 'custom' || !PUBLIC_RANGES.includes(key);
+    const button = el('button', { type: 'button', 'data-range': key, text: label, class: signedInOnly ? 'private-only' : null });
     button.addEventListener('click', () => {
       if (key === 'custom') {
         custom.dataset.open = 'true';
@@ -334,6 +440,7 @@ export function periodBar(onChange) {
     onChange();
   });
   mark();
+  periodBars.push({ mark, onChange });
   return el('div', { class: 'period-wrap' }, [bar, custom]);
 }
 
@@ -634,7 +741,7 @@ export function chart(keys, { bars, line, barLabel, lineLabel, unit }) {
     const x = left + i * step;
     const bar = svgEl('rect', { x: x + step * 0.1, width: Math.max(1, step * 0.8), y: y(bars[i]), height: top + plotH - y(bars[i]), class: 'bar' });
     const title = svgEl('title');
-    title.textContent = `${unit === 'day' ? key.slice(0, 10) : formatMinute(new Date(key))}\n${barLabel}: ${number.format(bars[i])}${line ? `\n${lineLabel}: ${number.format(line[i])}` : ''}`;
+    title.textContent = `${unit === 'day' ? key.slice(0, 10) : formatMinute(new Date(key))}\n${barLabel}: ${number.format(bars[i])}${line ? `\n${lineLabel}: ${number.format(line[i])}` : ''}\n${state.public ? 'Sign in to zoom in' : 'Click or drag to zoom in'}`;
     bar.append(title);
     svg.append(bar);
     if (line) points.push(`${x + step / 2},${y(line[i])}`);
@@ -645,9 +752,83 @@ export function chart(keys, { bars, line, barLabel, lineLabel, unit }) {
     }
   });
   if (line) svg.append(svgEl('polyline', { points: points.join(' '), class: 'line' }));
+  if (!state.public) zoomable(svg, keys, unit, { left, top, width, plotH, step });
   const legend = el('div', { class: 'legend' }, [el('span', { class: 'key-bar', text: barLabel }), line ? el('span', { class: 'key-line', text: lineLabel }) : null]);
   box.append(svg, legend);
   return box;
+}
+
+// Click a bar to show just that hour or day; drag across bars to show that stretch (like Datadog).
+// It sets a custom period with pushState, so the browser's Back button goes back to the previous one.
+export function zoomTo(start, end) {
+  let stop = Math.ceil(Math.min(end, Date.now()) / 60e3) * 60e3;
+  if (stop <= start) stop = start + 60e3;
+  const q = new URLSearchParams(location.search);
+  for (const key of ['range', 'from', 'to']) q.delete(key);
+  q.set('from', toInstant(new Date(start)));
+  q.set('to', toInstant(new Date(stop)));
+  history.pushState(null, '', `${location.pathname}?${q}`);
+  setStatus('');
+  periodChanged();
+}
+
+// Escape cancels a drag in progress.
+let cancelDrag = null;
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && cancelDrag) cancelDrag();
+});
+
+function zoomable(svg, keys, unit, { left, top, width, plotH, step }) {
+  const size = STEP[unit] || DAY_MS;
+  const band = svgEl('rect', { class: 'select-band', y: top, height: plotH, x: 0, width: 0, visibility: 'hidden' });
+  svg.append(band);
+  svg.classList.add('zoomable');
+  const indexAt = (event) => {
+    const box = svg.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * width;
+    return Math.min(keys.length - 1, Math.max(0, Math.floor((x - left) / step)));
+  };
+  const show = (a, b) => {
+    band.setAttribute('x', left + Math.min(a, b) * step);
+    band.setAttribute('width', (Math.abs(a - b) + 1) * step);
+    band.setAttribute('visibility', 'visible');
+  };
+  const select = (a, b) => zoomTo(Date.parse(keys[Math.min(a, b)]), Date.parse(keys[Math.max(a, b)]) + size);
+  let anchor = null;
+  const cancel = () => {
+    anchor = null;
+    cancelDrag = null;
+    band.setAttribute('visibility', 'hidden');
+  };
+  svg.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    anchor = indexAt(event);
+    svg.setPointerCapture(event.pointerId);
+    show(anchor, anchor);
+    cancelDrag = cancel;
+  });
+  svg.addEventListener('pointermove', (event) => {
+    if (anchor !== null) show(anchor, indexAt(event));
+  });
+  svg.addEventListener('pointerup', (event) => {
+    if (anchor === null) return;
+    const from = anchor;
+    cancel();
+    select(from, indexAt(event));
+  });
+  svg.addEventListener('pointercancel', cancel);
+  // Keyboard: every bar can take focus, and Enter or Space zooms into it.
+  svg.querySelectorAll('rect.bar').forEach((bar, i) => {
+    bar.setAttribute('tabindex', '0');
+    bar.setAttribute('role', 'button');
+    bar.setAttribute('aria-label', `Zoom in on ${unit === 'day' ? keys[i].slice(0, 10) : formatMinute(new Date(keys[i]))}`);
+    bar.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      select(i, i);
+    });
+  });
 }
 
 export function sparkline(values) {

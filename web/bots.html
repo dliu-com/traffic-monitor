@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Bots · dliu.com</title>
+  <link rel="icon" type="image/png" href="https://files.dliu.com/dliu.com/favicon.png">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/bots.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand-row">
+      <a class="logo" href="https://dliu.com" aria-label="dliu.com"><img src="https://files.dliu.com/dliu.com/favicon.png" width="36" height="36" alt="DL"></a>
+      <h1><a class="brand" href="https://traffic.dliu.com/">DL Traffic</a></h1>
+      <nav><a href="/">Dashboard</a><a href="/bots" aria-current="page">Bots</a><a href="/about">About</a></nav>
+    </div>
+    <div id="account" hidden><span id="user"></span> · <a href="/auth/logout">Sign out</a></div>
+  </header>
+
+  <main>
+    <section id="signin" hidden class="signin">
+      <h2>Traffic across the dliu.com sites</h2>
+      <p>This page is private. Sign in with your dliu.com Microsoft account to view it. The traffic totals are public on the <a href="/">dashboard</a>.</p>
+      <a class="ms-signin" href="/auth/login">
+        <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        <span>Sign in with Microsoft</span>
+      </a>
+      <a class="about-button" href="/about">How it works — view the About page →</a>
+    </section>
+
+    <p id="status" role="status">Loading…</p>
+    <div id="page" hidden></div>
+  </main>
+</body>
+</html>

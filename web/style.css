@@ -168,3 +168,14 @@ td.nowrap { white-space: nowrap; }
 .grid-chart { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); margin-bottom: .75rem; }
 @media (max-width: 900px) { .grid-chart { grid-template-columns: 1fr; } }
 tr.selected td { background: var(--accent-soft); }
+
+/* Public view: only the public totals are shown. */
+body.public .private-only { display: none !important; }
+.signin-link { font-weight: 600; }
+
+/* Chart zoom: click a bar or drag across bars. */
+.chart svg.zoomable { cursor: crosshair; touch-action: pan-y; user-select: none; }
+.chart svg.zoomable .bar { cursor: pointer; }
+.chart .bar:focus { outline: none; }
+.chart .bar:focus-visible { fill: var(--accent); }
+.chart .select-band { fill: var(--accent); opacity: 0.18; pointer-events: none; }

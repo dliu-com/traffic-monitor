@@ -250,3 +250,77 @@ test('only the api behaviour accepts POST (for Check bots now)', () => {
   expect(config.DefaultCacheBehavior.AllowedMethods || ['GET', 'HEAD']).not.toContain('POST');
   for (const b of config.CacheBehaviors.filter((b: any) => b.PathPattern !== 'api/*')) expect(b.AllowedMethods || []).not.toContain('POST');
 });
+
+test('public statistics: scheduled writer limited to stats/* and kept by deploys', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'public-stats.update',
+    Environment: { Variables: Match.objectLike({ STATS_BUCKET: Match.anyValue(), GLUE_DATABASE: 'traffic' }) },
+  });
+  template.hasResourceProperties('AWS::Events::Rule', {
+    ScheduleExpression: 'cron(0 2 * * ? *)',
+    Targets: [Match.objectLike({ Input: JSON.stringify({ ranges: ['7d', '30d', '90d'] }) })],
+  });
+  template.hasResourceProperties('Custom::CDKBucketDeployment', { Exclude: ['stats/*'] });
+  const policies = Object.values(template.findResources('AWS::IAM::Policy'))
+    .filter((policy: any) => JSON.stringify(policy).includes('PublicStatsServiceRole'));
+  expect(policies).toHaveLength(1);
+  const statements: any[] = (policies[0] as any).Properties.PolicyDocument.Statement;
+  // The dashboard bucket statement allows writing stats/* only (no read, list or delete).
+  const dashboard = statements.filter((s) => JSON.stringify(s.Resource).includes('/stats/*'));
+  expect(dashboard).toHaveLength(1);
+  expect([dashboard[0].Action].flat().every((a: string) => a.startsWith('s3:PutObject') || a.startsWith('s3:Abort'))).toBe(true);
+  expect(JSON.stringify(statements)).not.toContain('ssm:');
+});
+
+test('monthly log archive table: one partition per month, site and dt as columns, kept as long as logs', () => {
+  template.hasResourceProperties('AWS::Glue::Table', {
+    TableInput: Match.objectLike({
+      Name: 'cloudfront_logs_archive',
+      PartitionKeys: [{ Name: 'month', Type: 'string' }],
+      Parameters: Match.objectLike({
+        'projection.month.type': 'date',
+        'projection.month.format': 'yyyy-MM',
+        'projection.month.interval.unit': 'MONTHS',
+        'skip.header.line.count': '2',
+      }),
+      StorageDescriptor: Match.objectLike({
+        Columns: Match.arrayWith([{ Name: 'vid_log', Type: 'string' }, { Name: 'site', Type: 'string' }, { Name: 'dt', Type: 'string' }]),
+      }),
+    }),
+  });
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Id: 'expire-log-archive', Prefix: 'archive/', ExpirationInDays: 365 })]) },
+  });
+  for (const handler of ['index.handler', 'public-stats.update']) {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Handler: handler,
+      Environment: { Variables: Match.objectLike({ GLUE_ARCHIVE_TABLE: 'cloudfront_logs_archive' }) },
+    });
+  }
+});
+
+test('log merge: daily after the bot check, may delete only under logs/', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'compact.update',
+    Environment: { Variables: Match.objectLike({ LOGS_BUCKET: Match.anyValue(), SITES: Match.anyValue() }) },
+  });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 1 * * ? *)' });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0 * * ? *)' });
+  const policies = Object.values(template.findResources('AWS::IAM::Policy'))
+    .filter((policy: any) => JSON.stringify(policy).includes('LogMergeServiceRole'));
+  expect(policies).toHaveLength(1);
+  const statements: any[] = (policies[0] as any).Properties.PolicyDocument.Statement;
+  const deletes = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith('s3:DeleteObject')));
+  expect(deletes).toHaveLength(1);
+  expect(JSON.stringify(deletes[0].Resource)).toContain('/logs/*');
+  expect(JSON.stringify(statements)).not.toMatch(/athena:|ssm:|lambda:/);
+  // It writes only the monthly archive, never the daily folders.
+  const puts = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith('s3:PutObject')));
+  expect(puts).toHaveLength(1);
+  expect(JSON.stringify(puts[0].Resource)).toContain('/archive/*');
+  expect(JSON.stringify(puts[0].Resource)).not.toContain('/logs/*');
+  // The AbuseIPDB run history is kept 120 days.
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Id: 'expire-abuseipdb-runs', Prefix: 'abuseipdb/runs/', ExpirationInDays: 120 })]) },
+  });
+});

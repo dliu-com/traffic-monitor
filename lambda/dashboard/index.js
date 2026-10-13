@@ -5,7 +5,8 @@ const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
 const { loadHosting } = require('./hosting');
 const { STATUS_KEY, readStatus } = require('./bots');
-const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
+const { readRuns, reputationQueries, summarize } = require('./abuse');
+const { BadRequest, PAGE_MAX, botQueries, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -59,7 +60,7 @@ const lambdaApi = () => {
 
 const isRunning = (status, now) => Boolean(status && status.state === 'running' && now - Date.parse(status.started) < RUN_STALE_MS);
 
-// "Check bots now": starts the bot classifier in the background (last week plus today) unless a run is going.
+// "Check bots now": starts the bot classifier in the background (last 3 days plus today) unless a run is going.
 async function startBotRun(deps, now) {
   const client = deps.s3 || s3();
   const bucket = process.env.BOTS_BUCKET;
@@ -126,13 +127,21 @@ function createHandler(deps = {}) {
         const status = await readStatus(deps.s3 || s3(), process.env.BOTS_BUCKET);
         return json(200, { status: status && status.state === 'running' && !isRunning(status, clock()) ? { ...status, state: 'failed', error: 'The bot check stopped without finishing.' } : status });
       }
+      // The /abuse-check page: part=runs reads the run history; the other parts are Athena queries.
+      if (path === '/api/abuse') {
+        if (params.part === 'runs') return json(200, summarize(await readRuns(deps.s3 || s3(), process.env.BOTS_BUCKET, clock()), clock()));
+        const queries = reputationQueries(clock());
+        if (!Object.hasOwn(queries, params.part || '')) throw new BadRequest('Unknown part');
+        return json(200, { rows: await query(queries[params.part]) });
+      }
       if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
       // Network names for the Browser column; the browser keeps them for an hour (they change weekly).
       if (path === '/api/networks') return json(200, { networks: await hosting() }, undefined, { 'cache-control': 'private, max-age=3600' });
-      if (path === '/api/overview' || path === '/api/ip' || path === '/api/page') {
-        const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
+      if (path === '/api/overview' || path === '/api/ip' || path === '/api/page' || path === '/api/bot-records') {
+        const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : path === '/api/bot-records' ? { ...params, bots: 'only' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip)
-          : path === '/api/page' ? pageQueries(filters, params.path) : overviewQueries(filters);
+          : path === '/api/page' ? pageQueries(filters, params.path)
+            : path === '/api/bot-records' ? botQueries(filters) : overviewQueries(filters);
         // part=<name> runs one query, so each dashboard widget can load and appear on its own.
         if (params.part !== undefined) {
           if (!Object.hasOwn(queries, params.part)) throw new BadRequest('Unknown part');

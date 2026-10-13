@@ -11,11 +11,15 @@ describe('dashboard-pages CloudFront function', () => {
     ['/about/', '/about.html'],
     ['/detect-bot', '/detect-bot.html'],
     ['/detect-bot/', '/detect-bot.html'],
+    ['/cost', '/cost.html'],
+    ['/cost/', '/cost.html'],
     ['/security', '/security.html'],
     ['/security/', '/security.html'],
     ['/site', '/site.html'],
     ['/ip/', '/ip.html'],
     ['/page', '/page.html'],
+    ['/bots', '/bots.html'],
+    ['/abuse-check', '/abuse-check.html'],
   ])('maps %s to %s', (uri, expected) => {
     expect(uriFor(uri)).toBe(expected);
   });

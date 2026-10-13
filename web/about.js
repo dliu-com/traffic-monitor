@@ -1,4 +1,4 @@
-import { flow, tiers, stats, table, cards, more } from './diagram.js';
+import { flow, tiers, stats, cards, more } from './diagram.js';
 
 const root = document.getElementById('about');
 
@@ -53,7 +53,7 @@ root.append(tiers({
     {
       label: 'Log pipeline', badge: 'Private', tone: 'private', link: 'log files, a few minutes later',
       nodes: [
-        { icon: 's3', title: 'Log bucket', text: 'raw-v2/<site>/ then logs/site=<site>/dt=<day>/' },
+        { icon: 's3', title: 'Log bucket', text: 'raw-v2/<site>/, then logs/site=<site>/dt=<day>/, then archive/month=<YYYY-MM>/' },
         { icon: 'lambda', title: 'Partitioner', text: 'Puts each new log file’s columns in a fixed order and files it by site and day' },
         { icon: 'glue', title: 'Glue table', text: 'Describes the log columns and partitions' },
       ],
@@ -120,40 +120,7 @@ root.append(flow({
   note: 'The client secret lives in SSM Parameter Store, not in the code. The sign-in cookie that carries state, nonce and PKCE expires after 10 minutes.',
 }));
 
-section('Cost', 'Nothing runs while nobody is visiting, so there is no fixed monthly fee. Each part is billed per use, and at the traffic of the dliu.com sites almost everything stays inside the AWS free tier or rounds to zero.');
-
-root.append(stats([
-  ['≈ $0.25', 'per month for logging all sites', 'budget'],
-  ['≈ $0.0003', 'per dashboard page load (Athena)', 'athena'],
-  ['$0.03', 'worst case per load, capped by the scan limit', 'shield'],
-]));
-
-root.append(table(['Part', 'How it is billed', 'Typical month'], [
-  ['CloudFront log delivery (standard logging v2)', '$0.25 per GB of log lines delivered to S3; about 0.2 to 0.4 GB a month', { text: '≈ $0.10', className: 'num' }],
-  ['Visitor ID function', '$0.10 per million site requests', { text: '< $0.01', className: 'num' }],
-  ['S3 requests', 'About 11,000 log files a month; each is written, read, rewritten and deleted once ($0.005 per 1,000 writes)', { text: '≈ $0.12', className: 'num' }],
-  ['S3 storage', 'Gzipped logs of about 25 MB a month, kept for one year', { text: '< $0.01', className: 'num' }],
-  ['Partitioner Lambda', 'One short call per log file', { text: '$0 (free tier)', className: 'num' }],
-  ['Athena', '$5 per TB scanned, 10 MB minimum per query; a dashboard page runs 5 or 6 queries, and each search or "Show more" runs one more', { text: '≈ $0.03 for 100 loads', className: 'num' }],
-  ['Bot check Lambda', 'One run a day (about a minute), plus Check bots now, and one Athena query each', { text: '≈ $0.02', className: 'num' }],
-  ['AbuseIPDB', 'Free plan, up to 1,000 lookups a day', { text: '$0', className: 'num' }],
-  ['Dashboard Lambda, CloudFront, Glue, SSM', 'Per request, or free at this size', { text: '$0', className: 'num' }],
-]));
-root.append(Object.assign(document.createElement('p'), {
-  className: 'dg-note',
-  textContent: 'Prices are for eu-west-1 (Ireland) and us-east-1 log delivery in October 2026. File counts were measured on the live log bucket. With one peak day a week the whole monitor costs about $2.60 a year, and about $5 in a bad year. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, $0.25 per extra GB of logs and $0.10 per million requests.',
-}));
-
-root.append(flow({
-  title: 'What keeps the bill small',
-  steps: [
-    { icon: 'power', title: 'No idle servers', text: 'Lambda and Athena run only when used' },
-    { icon: 'filter', title: 'Partitions', text: 'Queries read only the chosen sites and days' },
-    { icon: 'budget', title: 'Scan cap', text: 'Each query stops at 1 GB scanned' },
-    { icon: 'clock', title: 'Result reuse', text: 'The same query within 5 minutes is free' },
-    { icon: 's3', title: 'Lifecycle', text: 'Raw files deleted after 7 days, logs after 1 year', tone: 'good' },
-  ],
-}));
+section('Running costs', 'Nothing runs while nobody is visiting, so there is no fixed server fee. Every part is billed per use: about $0.23 a month for recording all sites and the daily jobs, nothing for guest visits (they read pre-computed files), and about $0.005 per signed-in dashboard page load. The Running costs page has the full breakdown.');
 
 section('Security', 'The monitor stores data that visitors control, such as their browser name and the address they typed, so every logged value is treated as hostile. It is shown on the dashboard as plain text and never placed into SQL. The site was threat-modelled and penetration-tested on 9 October 2026; the four issues found were fixed the same day.');
 
@@ -190,6 +157,7 @@ root.append(tiers({
 section('Read more');
 root.append(cards([
   ['/detect-bot', 'bot', 'Bot detection', 'The rules that tell bots from people, and the daily check', '5 rules · AbuseIPDB · daily'],
+  ['/cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.23 a month · guests free'],
   ['/security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
   ['https://github.com/dliu-com/traffic-monitor', 'code', 'Source code', 'The CDK stack, Lambdas, functions and these pages', 'Public on GitHub'],
 ]));
@@ -211,8 +179,8 @@ detailList('Components', [
   'City: the shared origin request policy dliu-traffic-geo, on each site’s default behavior, makes CloudFront add its CloudFront-Viewer-City header. The visitor function logs it as <id>.<hex of the UTF-8 name>, since CloudFront escapes other characters in log fields. The header is not part of the cache key, so caching is unchanged.',
   'Visitor ID: a CloudFront Function (cloudfront-js-2.0) on viewer response that sets dl_vid on .dliu.com for one year and writes the ID into the log with cf.logCustomData, followed by the viewer’s city when the site forwards it.',
   'Log delivery: CloudFront standard logging (v2) for each site’s distribution, writing 36 tab-separated fields (the 33 classic ones plus c-country, asn and viewer-response-log-data) to raw-v2/<site>/YYYY/MM/DD/.',
-  'Log bucket: the partitioner Lambda (Node.js) reorders each file’s columns by its #Fields header, gzips it into logs/site=<site>/dt=<day>/ and deletes the raw file. Only the log delivery service of this account may write to raw-v2/.',
-  'Glue table cloudfront_logs with partition projection over site and day, so no crawler or partition updates are needed.',
+  'Log bucket: the partitioner Lambda (Node.js) reorders each file’s columns by its #Fields header, gzips it into logs/site=<site>/dt=<day>/ and deletes the raw file. Only the log delivery service of this account may write to raw-v2/. At 01:30 UTC the log merge turns each day the bot check has finished with (4 days old) into one file per site in archive/month=<YYYY-MM>/, without the bots\' requests, and deletes that day\'s files; the dashboard reads the last 7 days from the daily folders and older days from the month folders.',
+  'Glue tables cloudfront_logs (partition projection over site and day) and cloudfront_logs_archive (over month), so no crawler or partition updates are needed.',
   'Athena workgroup traffic with an enforced 1 GB scan cutoff and 5-minute result reuse.',
   'Bot check: a Node.js Lambda run daily at 00:30 UTC by EventBridge, or from the dashboard, writes per-day bot verdicts and AbuseIPDB results to the log bucket, read through two more Glue tables.',
   'Dashboard: static HTML, CSS and JavaScript in a private S3 bucket behind CloudFront; /api/* and /auth/* go to a Node.js Lambda function URL secured with IAM and origin access control.',

@@ -1,4 +1,4 @@
-const { BadRequest, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, base, botQueries, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -7,22 +7,23 @@ const NOW = Date.UTC(2026, 9, 9, 12, 30, 0);
 
 describe('filters', () => {
   test('defaults to 7 days across all sites', () => {
-    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', country: null, startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day', bots: 'hide' });
+    expect(parseFilters({}, NOW, env)).toEqual({ site: 'all', country: null, startDay: '2026-10-03', endDay: '2026-10-09', since: null, until: null, unit: 'day', bots: 'hide', now: NOW });
   });
 
   test('24h uses an hourly timestamp filter', () => {
     expect(parseFilters({ range: '24h', site: 'cyy' }, NOW, env))
-      .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour', bots: 'hide' });
+      .toEqual({ site: 'cyy', country: null, startDay: '2026-10-08', endDay: '2026-10-09', since: '2026-10-08 12:30:00', until: null, unit: 'hour', bots: 'hide', now: NOW });
   });
 
-  test('only 24h, 7d, 30d and 90d ranges', () => {
+  test('only 24h, 3d, 7d, 30d and 90d ranges', () => {
     expect(parseFilters({ range: '90d' }, NOW, env)).toMatchObject({ startDay: '2026-07-12', unit: 'day' });
+    expect(parseFilters({ range: '3d' }, NOW, env)).toMatchObject({ startDay: '2026-10-07', endDay: '2026-10-09', unit: 'day' });
     for (const range of ['1h', '12h', '365d', 'nope']) expect(() => parseFilters({ range }, NOW, env)).toThrow(BadRequest);
   });
 
   test('custom ranges with times', () => {
     expect(parseFilters({ from: '2026-10-07T22:15Z', to: '2026-10-08T01:00:00Z' }, NOW, env))
-      .toEqual({ site: 'all', country: null, startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute', bots: 'hide' });
+      .toEqual({ site: 'all', country: null, startDay: '2026-10-07', endDay: '2026-10-08', since: '2026-10-07 22:15:00', until: '2026-10-08 01:00:00', unit: 'minute', bots: 'hide', now: NOW });
     expect(parseFilters({ from: '2026-10-01T00:00Z', to: '2026-10-02T00:00Z' }, NOW, env)).toMatchObject({ endDay: '2026-10-01', unit: 'hour' });
     for (const bad of [{ from: '2026-10-08T01:00Z', to: '2026-10-08T01:00Z' }, { from: '2024-01-01T00:00Z', to: '2026-01-01T00:00Z' },
       { from: "2026-10-08T01:00Z'", to: '2026-10-09T01:00Z' }, { from: '2026-10-08 01:00', to: '2026-10-09T01:00Z' }]) {
@@ -85,6 +86,7 @@ describe('country filter', () => {
 describe('bot filter', () => {
   test('bots are hidden unless included', () => {
     expect(parseFilters({ bots: 'include' }, NOW, env).bots).toBe('include');
+    expect(parseFilters({ bots: 'only' }, NOW, env).bots).toBe('only');
     for (const bad of ['yes', 'HIDE', "include'"]) expect(() => parseFilters({ bots: bad }, NOW, env)).toThrow(BadRequest);
   });
 });
@@ -215,6 +217,70 @@ describe('bots', () => {
       expect(listQuery(hidden, { list, ip: '203.0.113.7' }, env).sql).not.toContain(DROP);
     }
     expect(listQuery(hidden, { list: 'requests' }, env).sql).toContain(DROP);
+  });
+});
+
+describe('daily folders and the monthly archive', () => {
+  // NOW is 2026-10-09: days from 10-02 may still be in daily folders, days up to 10-05 may be archived.
+  test('recent ranges read only the daily folders', () => {
+    for (const range of ['24h', '3d']) {
+      const filters = parseFilters({ range }, NOW, env);
+      expect(layout(filters).archive).toBeNull();
+      const sql = overviewQueries(filters, env).summary;
+      expect(sql).toContain('FROM "traffic"."cloudfront_logs"');
+      expect(sql).not.toContain('cloudfront_logs_archive');
+    }
+  });
+
+  test('longer ranges add the archive by month, and bot verdicts only for the daily days', () => {
+    const filters = parseFilters({ range: '90d', site: 'cyy', country: 'GB' }, NOW, env);
+    expect(layout(filters)).toEqual({ daily: { from: '2026-10-02', to: '2026-10-09' }, archive: { from: '2026-07-12', to: '2026-10-05' } });
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).toContain("FROM \"traffic\".\"cloudfront_logs\"\n    WHERE dt BETWEEN '2026-10-02' AND '2026-10-09' AND site = 'cyy'");
+    expect(sql).toContain('UNION ALL');
+    expect(sql).toContain("FROM \"traffic\".\"cloudfront_logs_archive\"\n    WHERE month BETWEEN '2026-07' AND '2026-10'\n      AND dt BETWEEN '2026-07-12' AND '2026-10-05' AND site = 'cyy'");
+    expect(sql).toMatch(/FROM "traffic"."bot_ips"\n    WHERE dt BETWEEN '2026-10-02' AND '2026-10-09'\n/);
+    expect(sql).toContain("AND c_country = 'GB'");
+  });
+
+  test('an old custom range reads only the archive and joins no bot verdicts', () => {
+    const filters = parseFilters({ from: '2026-08-01', to: '2026-08-31' }, NOW, env);
+    expect(layout(filters)).toEqual({ daily: null, archive: { from: '2026-08-01', to: '2026-08-31' } });
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).not.toContain('"traffic"."cloudfront_logs"\n');
+    expect(sql).toContain("month BETWEEN '2026-08' AND '2026-08'");
+    expect(sql).toMatch(/FROM "traffic"."bot_ips"\n    WHERE dt BETWEEN '2026-08-01' AND '2026-08-01' AND false/);
+  });
+});
+
+describe('bots page', () => {
+  const filters = parseFilters({ range: '3d' }, NOW, env);
+  const ONLY = 'WHERE bot_reason IS NOT NULL';
+
+  test('every bot query keeps only bots, whatever the filters say', () => {
+    for (const sql of Object.values(botQueries({ ...filters, bots: 'hide' }, env))) {
+      expect(sql).toContain(ONLY);
+      expect(sql).not.toContain('WHERE bot_reason IS NULL');
+      expect(sql).toContain("WHERE dt BETWEEN '2026-10-07' AND '2026-10-09'");
+    }
+    const only = parseFilters({ range: '3d', bots: 'only' }, NOW, env);
+    for (const list of ['ips', 'agents', 'requests']) expect(listQuery(only, { list }, env).sql).toContain(ONLY);
+    expect(listQuery(only, { list: 'agents', q: 'curl' }, env).sql).toMatch(/GROUP BY ua[\s\S]*ORDER BY requests DESC/);
+  });
+
+  test('/api/bot-records needs sign-in and forces bots only', async () => {
+    const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
+    const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
+    const seen = [];
+    const handler = createHandler({ loadConfig: async () => config, runQuery: async (sql) => { seen.push(sql); return []; }, now: () => NOW });
+    Object.assign(process.env, env);
+    const call = (query, extra = {}) => handler({ rawPath: '/api/bot-records', queryStringParameters: query, requestContext: { http: { method: 'GET' } }, ...extra });
+    expect((await call({ part: 'summary' })).statusCode).toBe(401);
+    const response = await call({ part: 'reasons', range: '3d', bots: 'hide' }, { cookies: [`${auth.SESSION_COOKIE}=${session}`] });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).filters.bots).toBe('only');
+    expect(seen[0]).toContain(ONLY);
+    expect((await call({ part: 'nope' }, { cookies: [`${auth.SESSION_COOKIE}=${session}`] })).statusCode).toBe(400);
   });
 });
 
@@ -431,5 +497,62 @@ describe('handler', () => {
   test('only GET is allowed and unknown paths 404', async () => {
     expect((await handler({ rawPath: '/api/me', requestContext: { http: { method: 'POST' } } })).statusCode).toBe(405);
     expect((await request('/api/unknown', signedIn)).statusCode).toBe(404);
+  });
+});
+
+describe('abuse-check', () => {
+  const { summarize, reputationQueries } = require('../lambda/dashboard/abuse');
+  const run = (started, trigger, from, to, days, extra = {}) => ({ version: 1, started, finished: started, trigger, from, to, looked_up: 0, limit_hit: false, remaining: null, failures: 0, days, ...extra });
+  const c = (o) => ({ seen: 0, people: 0, skipped: 0, queued: 0, looked_up: 0, left: 0, abusive: 0, ...o });
+
+  test('summarizes lookups per day, per log day, waiting and dropped IPs', () => {
+    const runs = [
+      run('2026-10-08T00:30:00.000Z', 'schedule', '2026-10-05', '2026-10-07', {
+        '2026-10-07': c({ seen: 50, people: 40, queued: 30, looked_up: 20, left: 10 }),
+        '2026-10-05': c({ seen: 9, queued: 4, left: 4 }),
+      }, { looked_up: 900, limit_hit: true, remaining: 0 }),
+      run('2026-10-09T00:30:00.000Z', 'schedule', '2026-10-06', '2026-10-08', {
+        '2026-10-08': c({ seen: 70, queued: 60, looked_up: 55, left: 5, abusive: 3 }),
+        '2026-10-07': c({ seen: 50, queued: 10, looked_up: 10, abusive: 1 }),
+        '2026-10-06': c({ seen: 8, queued: 2, left: 2 }),
+      }, { looked_up: 65, remaining: 935 }),
+      run('2026-10-09T10:00:00.000Z', 'dashboard', '2026-10-06', '2026-10-09', {
+        '2026-10-09': c({ seen: 5, queued: 1, looked_up: 1 }),
+        '2026-10-08': c({ seen: 71, queued: 5, left: 5 }),
+      }, { looked_up: 1, remaining: 934 }),
+    ];
+    const out = summarize(runs, NOW);
+    expect(out.today).toEqual({ looked_up: 66, remaining: 934, limit_hit: false });
+    expect(out.runs[1]).toMatchObject({ day: '2026-10-08', looked_up: 900, limit_hit: true });
+    expect(out.waiting).toBe(5);
+    expect(out.next_run).toBe('2026-10-10T00:30:00.000Z');
+    const day = (d) => out.days.find((r) => r.day === d);
+    expect(day('2026-10-07')).toMatchObject({ looked_up: 30, abusive: 1, left: 0, dropped: null });
+    expect(day('2026-10-05').dropped).toBe(4);
+    expect(day('2026-10-06').dropped).toBe(2);
+    expect(day('2026-10-08').seen).toBe(71);
+  });
+
+  test('reputation queries cover 30 days and cap the abusive list', () => {
+    const q = reputationQueries(NOW, env);
+    expect(Object.keys(q)).toEqual(['summary', 'scores', 'usage', 'abusive']);
+    for (const sql of Object.values(q)) expect(sql).toContain("WHERE dt BETWEEN '2026-09-10' AND '2026-10-09'");
+    expect(q.abusive).toContain('LIMIT 500');
+  });
+
+  test('/api/abuse needs sign-in and validates the part', async () => {
+    const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
+    const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
+    const s3 = { send: async (cmd) => (cmd.constructor.name === 'ListObjectsV2Command'
+      ? { Contents: [{ Key: 'abuseipdb/runs/dt=2026-10-09/20261009T003000000Z.json' }, { Key: 'abuseipdb/runs/../x' }] }
+      : { Body: { transformToString: async () => JSON.stringify(run('2026-10-09T00:30:00.000Z', 'schedule', '2026-10-06', '2026-10-08', { '2026-10-08': c({ left: 7 }) })) } }) };
+    const handler = createHandler({ loadConfig: async () => config, runQuery: async () => [{ ips: '3' }], s3, now: () => NOW });
+    Object.assign(process.env, env, { BOTS_BUCKET: 'logs' });
+    const call = (part, signed = true) => handler({ rawPath: '/api/abuse', queryStringParameters: { part }, requestContext: { http: { method: 'GET' } }, ...(signed ? { cookies: [`${auth.SESSION_COOKIE}=${session}`] } : {}) });
+    expect((await call('runs', false)).statusCode).toBe(401);
+    const runs = JSON.parse((await call('runs')).body);
+    expect(runs.waiting).toBe(7);
+    expect(JSON.parse((await call('summary')).body).rows).toEqual([{ ips: '3' }]);
+    expect((await call('nope')).statusCode).toBe(400);
   });
 });

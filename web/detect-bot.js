@@ -20,7 +20,7 @@ function list(items) {
 }
 
 root.append(stats([
-  ['00:30 UTC', 'daily check of the last 7 days', 'clock'],
+  ['00:30 UTC', 'daily check of the last 3 days', 'clock'],
   ['5 rules', 'tried in a fixed order', 'filter'],
   ['900', 'AbuseIPDB lookups a day at most', 'shield'],
   ['0', 'browsers judged by their name', 'browser'],
@@ -60,7 +60,7 @@ root.append(tiers({
       label: 'Trigger', badge: 'Daily', tone: 'edge',
       nodes: [
         { icon: 'clock', title: 'Schedule', text: 'EventBridge at 00:30 UTC, retried twice on error' },
-        { icon: 'user', title: 'Check bots now', text: 'Button on the dashboard; also checks today so far' },
+        { icon: 'user', title: 'Check bots now', text: 'Button on the Bots page; also checks today so far' },
       ],
     },
     {
@@ -86,11 +86,13 @@ root.append(tiers({
       ],
     },
   ],
-  note: 'Each run re-judges the last 7 days, so a late AbuseIPDB result or a newly listed hosting network still corrects the past week.',
+  note: 'Each run re-judges the last 3 days, so a late AbuseIPDB result or a newly listed hosting network still corrects them. After that the daily log merge deletes the bots\' requests for good.',
 }));
 list([
   'Today\'s traffic counts as people until a check has covered it, except requests with a crawler user agent. A delay of up to a day is expected.',
-  'Check bots now runs the same check over the last 7 days plus today. It takes about a minute; the dashboard reloads when it finishes. Only one check runs at a time.',
+  'Check bots now, on the Bots page, runs the same check over the last 3 days plus today. It takes about a minute; the page reloads when it finishes. Only one check runs at a time.',
+  'The dashboards leave bots out. The Bots page (signed in) shows their requests, IPs and user agents for any period; the AbuseIPDB check page shows how the daily lookups were used.',
+  'At 01:30 UTC the log merge turns each day the check has finished with (4 days ago) into one file per site in a folder per month (archive/month=YYYY-MM/) and deletes the bots\' requests for good, so bot records exist only for the last 3 days plus today.',
   'Verdicts are per day: an IP that was a bot yesterday is judged again today, because home and mobile IPs change hands.',
 ]);
 
@@ -103,7 +105,7 @@ root.append(table(['Rule', 'Effect'], [
   ['Newest and busiest first', 'IPs from the latest day go first, the busiest ones first within a day'],
   ['At most 900 a run', 'Leaves room for a second run on the same day, such as Check bots now'],
   ['Stops at the limit', 'When AbuseIPDB answers 429 or says no lookups are left, the run stops looking up, saves what it has and flags with the results it already has'],
-  ['Catches up the next day', 'IPs that were not looked up are still in the 7-day window and go first in the next run'],
+  ['Catches up the next day', 'IPs that were not looked up go first in the next run while they are within the 3-day window; after that they are dropped and count as people'],
 ]));
 add('p', 'Only the IP address is sent to AbuseIPDB, never the visitor ID, page or user agent. The API key is stored encrypted in SSM Parameter Store. Without a key, the check still runs every other rule.');
 
@@ -130,12 +132,14 @@ const detailList = (title, items) => {
 detailList('Data', [
   'Glue tables bot_ips (ip, reason) and ip_reputation (ip, score, reports, usage_type, isp, domain, is_tor, checked), both newline-delimited JSON partitioned by day with partition projection.',
   'Dashboard queries LEFT JOIN bot_ips on day and IP for the chosen period; the crawler user agent rule is applied in the same query.',
-  'Bot verdicts are deleted after a year, with the logs they describe.',
+  'Bot verdicts are deleted after a year. The bots\' own requests are deleted by the daily log merge once a day is 4 days old.',
+  'Each run writes its AbuseIPDB counts (per log day: seen, people, checked recently, looked up, left, abusive) to abuseipdb/runs/, kept 120 days, for the AbuseIPDB check page.',
   'The hosting list is rebuilt every Monday from two public ASN lists plus a built-in core, and stored in the log bucket.',
   'The run status (running, done or failed, with counts) is kept in bots/status.json; a run that has not finished after 16 minutes is shown as failed.',
 ]);
 detailList('Commands', [
-  'make classify-bots DAYS=30 re-checks the last 30 days (up to 400) from the command line.',
+  'make classify-bots DAYS=3 re-checks the last 3 days from the command line (older days have been merged, so re-checking them changes nothing).',
+  'make compact-logs merges days now; FROM=YYYY-MM-DD TO=YYYY-MM-DD merges older days once, DRY=1 only reports what it would do, UNJUDGED=1 also merges days from before the bot check (dropping agent bots only).',
   'make set-abuseipdb-key stores the AbuseIPDB key in SSM without echoing it.',
   'The bot check Lambda logs a summary of each run: days, IPs, bots per reason and AbuseIPDB lookups used and left.',
 ]);

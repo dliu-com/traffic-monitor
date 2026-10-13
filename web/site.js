@@ -1,6 +1,6 @@
 import {
-  $, botCheck, botToggle, botsNote, browserLabel, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el, filters, fmt,
-  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, widget,
+  $, botToggle, botsNote, browserLabel, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el, filters, fmt,
+  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, updatedNote, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -59,7 +59,7 @@ const referrers = pagedTable({
 refCard.head.append(referrers.search);
 refCard.body.append(referrers.node);
 
-const ipCard = card('IP addresses', { subtitle: 'click an IP to see everything it did' });
+const ipCard = card('IP addresses', { subtitle: 'click an IP to see everything it did', className: 'private-only' });
 const ips = pagedTable({
   list: 'ips',
   params: scope,
@@ -82,7 +82,7 @@ ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
 const pagesOnly = checkbox('Pages only', false);
-const logCard = card('Request log', { subtitle: 'newest first' });
+const logCard = card('Request log', { subtitle: 'newest first', className: 'private-only' });
 const log = pagedTable({
   list: 'requests',
   params: () => ({ ...scope(), ...(pagesOnly.input.checked ? { pages: 'only' } : {}) }),
@@ -108,12 +108,12 @@ logCard.body.append(log.node);
 
 page.append(
   el('p', { class: 'crumbs' }, [home, ' › ', crumb]),
-  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), el('div', { class: 'page-tools' }, [botCheck(load), botToggle(load), picker.node, periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', {}, [switcher, openLink]), el('div', { class: 'page-tools' }, [botToggle(load), picker.node, periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,
   el('div', { class: 'grid grid-chart' }, [overTime.node, countryCard.node]),
-  el('div', { class: 'grid grid-pair' }, [pagesCard.node, refCard.node]),
+  el('div', { class: 'grid grid-pair private-only' }, [pagesCard.node, refCard.node]),
   ipCard.node,
   logCard.node,
 );
@@ -125,7 +125,7 @@ const overview = (name) => part('/api/overview', name, scope());
 
 const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
   const total = rows[0] || {};
-  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}`;
+  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}${updatedNote(filters)}`;
   kpiBox.replaceChildren(kpis([
     ['Visitors', fmt(total.visitors), 'Distinct visitors: the dl_vid cookie, or the IP when there is no cookie'],
     ['Page views', fmt(total.pageviews), 'HTML page loads'],
@@ -154,7 +154,8 @@ function load() {
   picker.load();
   loadKpis();
   loadChart();
-  for (const table of [countries, pages, referrers, ips, log]) table.load();
+  countries.load();
+  if (!state.public) for (const table of [pages, referrers, ips, log]) table.load();
 }
 
 start(async () => {
@@ -168,4 +169,4 @@ start(async () => {
   openLink.setAttribute('href', `https://${state.siteHosts[site]}/`);
   document.title = `${state.siteHosts[site]} · Traffic`;
   load();
-});
+}, { publicView: true });

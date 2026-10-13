@@ -104,6 +104,8 @@ root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['The AbuseIPDB key leaks or its answers are tampered with', LOW, 'The key is an encrypted SSM parameter read only by the bot check Lambda; answers are reduced to whole numbers, true/false and plain-text names before they are saved, and shown with textContent'],
   ['Visitor IPs are shared with a third party', MEDIUM, 'Only the IP address is sent to AbuseIPDB, over HTTPS, at most once per IP every 30 days, and only for IPs that look like people'],
   ['A visitor fakes page loads or a cookie to avoid being flagged', MEDIUM, 'Bot flags only affect the analytics; the hosting, scanner and AbuseIPDB rules still apply'],
+  ['A fault in the daily log merge deletes people\'s requests', LOW, 'The merge role may delete only under logs/ and write only under archive/; it writes the merged file before deleting the files it replaces, de-duplicates by CloudFront request ID so reruns are safe, and only merges days the finished bot check has judged; tested against a fake bucket'],
+  ['Guest visits run up the Athena bill', LOW, 'Guests read pre-computed totals (stats/*.json), refreshed once a day; they never start a query'],
   ['Logged IP addresses and visitor IDs are exposed', MEDIUM, 'Only the admin can query them; buckets are private and encrypted; raw logs deleted after 7 days, sorted logs after 1 year'],
 ]));
 
@@ -154,13 +156,14 @@ detailList('Sign-in and session', [
   'Session cookie __Host-tm_session: HMAC-SHA256 with a key derived from the client secret, 12 hours, HttpOnly, Secure, SameSite=Lax, host-only',
 ]);
 detailList('AWS', [
-  'The Lambda role can only run queries in its own Athena workgroup, read its Glue table, read parameters under /traffic-monitor/ and use its own bucket prefixes',
+  'The Lambda role can only run queries in its own Athena workgroup, read its Glue tables, read parameters under /traffic-monitor/ and use its own bucket prefixes',
   'All buckets block public access, use S3-managed encryption and reject plain HTTP',
   'Athena workgroup settings are enforced, so a query cannot raise its own scan limit',
   'CloudFront log deliveries (us-east-1) write to the log bucket through delivery.logs.amazonaws.com, limited by the bucket policy to raw-v2/*, bucket-owner-full-control, this account and its own delivery sources',
   'The partitioner can only read and delete raw files and write logs/; it deletes each raw-v2 file once it has been filed',
   'The bot check Lambda can read logs/ and hosting/, read and write bots/ and reputation/, read the AbuseIPDB key and run queries in the traffic workgroup',
-  'The dashboard Lambda can read bots/ and reputation/, write only bots/status.json and start the bot check Lambda',
+  'The dashboard Lambda can read logs/, archive/, bots/, reputation/ and abuseipdb/, write only bots/status.json and start the bot check Lambda',
+  'The log merge Lambda can read logs/, bots/ and archive/, write only archive/ and delete only logs/; it cannot run queries',
 ]);
 details.append(document.createElement('h3'));
 details.lastChild.textContent = 'Further reading';

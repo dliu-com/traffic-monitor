@@ -1,7 +1,7 @@
 import {
-  $, botCheck, botToggle, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
+  $, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
   filters, fmt, formatTime, handleError, ipLink, isBot, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
-  sparkline, start, state, widget,
+  sparkline, start, state, updatedNote, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -16,7 +16,7 @@ countryCard.body.append(countries.node);
 const picker = countrySelect(scope, load);
 const note = countryNote(load);
 const sitesBox = el('div', { class: 'site-cards' });
-const ipCard = card('Latest IP addresses', { subtitle: 'click an IP to see everything it did' });
+const ipCard = card('Latest IP addresses', { subtitle: 'click an IP to see everything it did', className: 'private-only' });
 const ips = pagedTable({
   list: 'ips',
   params: scope,
@@ -40,7 +40,7 @@ ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
 page.append(
-  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [botCheck(load), botToggle(load), picker.node, periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [picker.node, periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,
@@ -66,7 +66,7 @@ const overview = (name) => part('/api/overview', name, scope());
 
 const loadKpis = widget(kpiBox, () => overview('summary'), ({ filters, rows }) => {
   const total = rows[0] || {};
-  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}`;
+  periodNote.textContent = `Showing ${periodText(filters)}. ${botsNote()}${updatedNote(filters)}`;
   kpiBox.replaceChildren(kpis([
     ['Visitors', fmt(total.visitors), 'Distinct visitors: the dl_vid cookie, or the IP when there is no cookie'],
     ['Page views', fmt(total.pageviews), 'HTML page loads'],
@@ -142,7 +142,7 @@ function load() {
   loadChart();
   loadSites();
   countries.load();
-  ips.load();
+  if (!state.public) ips.load();
 }
 
-start(load);
+start(load, { publicView: true });

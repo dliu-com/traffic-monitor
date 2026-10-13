@@ -50,8 +50,8 @@ function setup(rows, { key = 'secret', fetchImpl, status } = {}) {
 }
 
 describe('days to classify', () => {
-  test('defaults to the 7 full days before today, newest first', () => {
-    expect(bots.daysToClassify({}, NOW)).toEqual(['2026-10-08', '2026-10-07', '2026-10-06', '2026-10-05', '2026-10-04', '2026-10-03', '2026-10-02']);
+  test('defaults to the 3 full days before today, newest first', () => {
+    expect(bots.daysToClassify({}, NOW)).toEqual(['2026-10-08', '2026-10-07', '2026-10-06']);
   });
 
   test('includes today when asked, and takes a number of days', () => {
@@ -150,7 +150,7 @@ describe('daily run', () => {
     const saved = t.file(t.puts.find((p) => p.key.startsWith('reputation/dt=2026-10-09/')).key);
     expect(saved.map((r) => [r.ip, r.score])).toEqual([['192.0.2.3', 100], ['192.0.2.6', 0]]);
     expect(summary).toMatchObject({
-      from: '2026-10-02', to: '2026-10-08', days: 2, bots: { hosting: 1, probe: 1, abuse: 2, headless: 1 },
+      from: '2026-10-06', to: '2026-10-08', days: 2, bots: { hosting: 1, probe: 1, abuse: 2, headless: 1 },
       abuseipdb: { wanted: 2, checked: 2, left: 0, failures: 0, stopped: null },
     });
     const statuses = t.puts.filter((p) => p.key === bots.STATUS_KEY).map((p) => JSON.parse(p.body));
@@ -186,8 +186,37 @@ describe('daily run', () => {
     const rows = Array.from({ length: 1000 }, (_, i) => row(`10.0.${Math.floor(i / 250)}.${i % 250}`, { requests: String(i) }));
     const t = setup(rows);
     const summary = await bots.update({}, t.deps);
-    expect(summary.abuseipdb).toMatchObject({ wanted: bots.MAX_CHECKS, checked: 900 });
+    expect(summary.abuseipdb).toMatchObject({ wanted: 1000, checked: bots.MAX_CHECKS, left: 100 });
     expect(new URL(t.lookups[0].url).searchParams.get('ipAddress')).toBe('10.0.3.249');
+  });
+
+  test('only IPs seen in the last 3 days are queued; each run saves its counts per day', async () => {
+    const rows = [
+      row('192.0.2.10', { dt: '2026-10-08', requests: '5' }),
+      row('192.0.2.11', { dt: '2026-10-06', requests: '9' }),
+      row('192.0.2.11', { dt: '2026-10-07' }),
+      row('192.0.2.12', { dt: '2026-10-07', score: '0', checked: '2026-10-01T00:00:00Z' }),
+      row('192.0.2.13', { dt: '2026-10-06', asn: '16509' }),
+      row('192.0.2.14', { dt: '2026-10-05' }),
+      row('192.0.2.15', { dt: '2026-10-06' }),
+    ];
+    let calls = 0;
+    const t = setup(rows, { fetchImpl: async (url) => {
+      t.lookups.push({ url });
+      return ++calls <= 2 ? response(200, abuse(url.includes('192.0.2.10') ? 90 : 0), '417') : response(429, {});
+    } });
+    await bots.update({}, t.deps);
+    // 192.0.2.14 was last seen 4 days ago: it is not looked up (it stays counted as a person).
+    expect(t.lookups.map((l) => new URL(l.url).searchParams.get('ipAddress'))).toEqual(['192.0.2.10', '192.0.2.11', '192.0.2.15']);
+    const run = JSON.parse(t.puts.find((p) => p.key.startsWith('abuseipdb/runs/dt=2026-10-09/')).body);
+    expect(run).toMatchObject({ version: 1, trigger: 'schedule', from: '2026-10-06', to: '2026-10-08', limit: 1000, looked_up: 2, limit_hit: true, remaining: 0 });
+    expect(run.days).toEqual({
+      '2026-10-08': { seen: 1, people: 1, skipped: 0, queued: 1, looked_up: 1, left: 0, abusive: 1 },
+      // 192.0.2.11 counts once, on its newest day.
+      '2026-10-07': { seen: 2, people: 2, skipped: 1, queued: 1, looked_up: 1, left: 0, abusive: 0 },
+      '2026-10-06': { seen: 3, people: 1, skipped: 0, queued: 1, looked_up: 0, left: 1, abusive: 0 },
+    });
+    expect(JSON.stringify(run)).not.toMatch(/192\.0\.2/);
   });
 
   test('without a key every other rule still runs', async () => {

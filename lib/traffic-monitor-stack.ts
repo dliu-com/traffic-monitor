@@ -29,6 +29,7 @@ const ROOT = path.join(__dirname, '..');
 
 export const GLUE_DATABASE = 'traffic';
 export const GLUE_TABLE = 'cloudfront_logs';
+export const GLUE_ARCHIVE_TABLE = 'cloudfront_logs_archive';
 export const ATHENA_WORKGROUP = 'traffic';
 const HOSTING_KEY = 'hosting/asns.json';
 export const GLUE_BOTS_TABLE = 'bot_ips';
@@ -91,10 +92,12 @@ export class TrafficMonitorStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
       lifecycleRules: [
         { id: 'expire-logs', prefix: 'logs/', expiration: Duration.days(props.retentionDays ?? 365) },
+        { id: 'expire-log-archive', prefix: 'archive/', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-unprocessed-raw', prefix: 'raw/', expiration: Duration.days(7) },
         { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(7) },
         { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
+        { id: 'expire-abuseipdb-runs', prefix: 'abuseipdb/runs/', expiration: Duration.days(120) },
         { id: 'abort-multipart', abortIncompleteMultipartUploadAfter: Duration.days(1) },
       ],
     });
@@ -212,6 +215,40 @@ export class TrafficMonitorStack extends Stack {
     });
     table.addResourceDependency(database);
 
+    // Days the daily merge (compact.js) has finished with: one file per site and day, bots removed, in a folder
+    // per month, archive/month=<YYYY-MM>/<site>_<day>.gz. Athena pays per folder it lists, so a 90-day query
+    // lists about 4 month folders instead of 90 x sites day folders. site and dt are columns in the file.
+    const archiveTable = new glue.CfnTable(this, 'LogsArchiveTable', {
+      catalogId: this.account,
+      databaseName: GLUE_DATABASE,
+      tableInput: {
+        name: GLUE_ARCHIVE_TABLE,
+        tableType: 'EXTERNAL_TABLE',
+        parameters: {
+          'skip.header.line.count': '2',
+          'projection.enabled': 'true',
+          'projection.month.type': 'date',
+          'projection.month.format': 'yyyy-MM',
+          'projection.month.range': '2026-01,NOW',
+          'projection.month.interval': '1',
+          'projection.month.interval.unit': 'MONTHS',
+          'storage.location.template': `s3://${logBucket.bucketName}/archive/month=` + '${month}/',
+        },
+        partitionKeys: [{ name: 'month', type: 'string' }],
+        storageDescriptor: {
+          location: `s3://${logBucket.bucketName}/archive/`,
+          columns: [...LOG_COLUMNS, ...ADDED_COLUMNS, ['site', 'string'], ['dt', 'string']].map(([name, type]) => ({ name, type })),
+          inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+          serdeInfo: {
+            serializationLibrary: 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe',
+            parameters: { 'field.delim': '\t', 'serialization.format': '\t' },
+          },
+        },
+      },
+    });
+    archiveTable.addResourceDependency(database);
+
     // JSON-lines tables written by the daily bot classifier (lambda/dashboard/bots.js), one folder per day.
     const jsonTable = (id: string, name: string, prefix: string, columns: Array<[string, string]>) => {
       const t = new glue.CfnTable(this, id, {
@@ -250,7 +287,7 @@ export class TrafficMonitorStack extends Stack {
     const glueResources = [
       this.formatArn({ service: 'glue', resource: 'catalog' }),
       this.formatArn({ service: 'glue', resource: 'database', resourceName: GLUE_DATABASE }),
-      ...[GLUE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE].map((name) =>
+      ...[GLUE_TABLE, GLUE_ARCHIVE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE].map((name) =>
         this.formatArn({ service: 'glue', resource: 'table', resourceName: `${GLUE_DATABASE}/${name}` })),
     ];
 
@@ -284,6 +321,7 @@ export class TrafficMonitorStack extends Stack {
         SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
         GLUE_DATABASE,
         GLUE_TABLE,
+        GLUE_ARCHIVE_TABLE,
         GLUE_BOTS_TABLE,
         GLUE_REPUTATION_TABLE,
         ATHENA_WORKGROUP,
@@ -318,6 +356,7 @@ export class TrafficMonitorStack extends Stack {
     }));
     dashboardHandler.addToRolePolicy(athenaQuery);
     logBucket.grantRead(dashboardHandler, 'logs/*');
+    logBucket.grantRead(dashboardHandler, 'archive/*');
     logBucket.grantRead(dashboardHandler, HOSTING_KEY);
     logBucket.grantRead(dashboardHandler, 'bots/*');
     logBucket.grantRead(dashboardHandler, 'reputation/*');
@@ -355,6 +394,7 @@ export class TrafficMonitorStack extends Stack {
       environment: {
         GLUE_DATABASE,
         GLUE_TABLE,
+        GLUE_ARCHIVE_TABLE,
         GLUE_BOTS_TABLE,
         GLUE_REPUTATION_TABLE,
         ATHENA_WORKGROUP,
@@ -382,9 +422,10 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantRead(botClassifier, HOSTING_KEY);
     logBucket.grantReadWrite(botClassifier, 'bots/*');
     logBucket.grantReadWrite(botClassifier, 'reputation/*');
+    logBucket.grantPut(botClassifier, 'abuseipdb/runs/*');
     resultsBucket.grantReadWrite(botClassifier);
     new events.Rule(this, 'BotClassifierDaily', {
-      description: 'Judge the last week of IPs as bots or people, just after midnight UTC',
+      description: 'Judge the last 3 days of IPs as bots or people, just after midnight UTC',
       schedule: events.Schedule.cron({ hour: '0', minute: '30' }),
       targets: [new eventTargets.LambdaFunction(botClassifier, { retryAttempts: 2 })],
     });
@@ -392,6 +433,39 @@ export class TrafficMonitorStack extends Stack {
     botClassifier.grantInvoke(dashboardHandler);
     logBucket.grantPut(dashboardHandler, 'bots/status.json');
     dashboardHandler.addEnvironment('BOTS_FUNCTION', botClassifier.functionName);
+    // The /abuse-check page reads the AbuseIPDB run history.
+    logBucket.grantRead(dashboardHandler, 'abuseipdb/*');
+    logBucket.grantRead(dashboardHandler, 'reputation/*');
+
+    // Daily log merge (compact.js): once the bot check has finished with a day (after 3 days), that day's
+    // files become one file per site in archive/month=<YYYY-MM>/ and bots' requests are deleted. Athena is
+    // paid per file it reads and per folder it lists. It writes only archive/* and deletes only logs/*.
+    const logMerge = new lambda.Function(this, 'LogMerge', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'compact.update',
+      code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
+      timeout: Duration.minutes(15),
+      memorySize: 1024,
+      description: 'Merges each site\'s day of logs into one file and deletes bots\' requests, after the bot check',
+      environment: {
+        SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
+        LOGS_BUCKET: logBucket.bucketName,
+      },
+      logGroup: new logs.LogGroup(this, 'LogMergeLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    logBucket.grantRead(logMerge, 'logs/*');
+    logBucket.grantDelete(logMerge, 'logs/*');
+    logBucket.grantRead(logMerge, 'bots/*');
+    logBucket.grantRead(logMerge, 'archive/*');
+    logBucket.grantPut(logMerge, 'archive/*');
+    new events.Rule(this, 'LogMergeDaily', {
+      description: 'Merge the logs of days the bot check has finished with',
+      schedule: events.Schedule.cron({ hour: '1', minute: '30' }),
+      targets: [new eventTargets.LambdaFunction(logMerge, { retryAttempts: 2 })],
+    });
 
     const functionUrl = dashboardHandler.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
 
@@ -401,6 +475,48 @@ export class TrafficMonitorStack extends Stack {
       enforceSSL: true,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+    });
+
+    // Public statistics: totals only, pre-computed into stats/<range>.json in the dashboard bucket, so
+    // visitors who are not signed in read static files and never start an Athena query (public-stats.js).
+    const publicStats = new lambda.Function(this, 'PublicStats', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'public-stats.update',
+      code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
+      timeout: Duration.minutes(5),
+      memorySize: 512,
+      description: 'Writes the public traffic totals (no IPs or visitor IDs) to the dashboard bucket',
+      environment: {
+        SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
+        GLUE_DATABASE,
+        GLUE_TABLE,
+        GLUE_ARCHIVE_TABLE,
+        GLUE_BOTS_TABLE,
+        GLUE_REPUTATION_TABLE,
+        ATHENA_WORKGROUP,
+        STATS_BUCKET: siteBucket.bucketName,
+      },
+      logGroup: new logs.LogGroup(this, 'PublicStatsLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    publicStats.addToRolePolicy(athenaQuery);
+    publicStats.addToRolePolicy(glueRead);
+    logBucket.grantRead(publicStats, 'logs/*');
+    logBucket.grantRead(publicStats, 'archive/*');
+    logBucket.grantRead(publicStats, 'bots/*');
+    resultsBucket.grantReadWrite(publicStats);
+    siteBucket.grantPut(publicStats, 'stats/*');
+    // Guests see 7, 30 and 90 whole days ending yesterday, refreshed once a day after the bot check (00:30)
+    // and the log merge (01:30). Athena is paid per log file read, so a daily refresh costs cents a month.
+    new events.Rule(this, 'PublicStatsDaily', {
+      description: 'Refresh the public traffic totals (7d, 30d, 90d)',
+      schedule: events.Schedule.cron({ hour: '2', minute: '0' }),
+      targets: [new eventTargets.LambdaFunction(publicStats, {
+        retryAttempts: 1,
+        event: events.RuleTargetInput.fromObject({ ranges: ['7d', '30d', '90d'] }),
+      })],
     });
 
     // CloudFront requires its certificate in us-east-1 (same pattern as the other sites).
@@ -440,7 +556,7 @@ export class TrafficMonitorStack extends Stack {
     };
 
     const pagesFunction = new cloudfront.Function(this, 'DashboardPagesFunction', {
-      comment: 'Serves /about, /detect-bot and /security from their .html files',
+      comment: 'Serves the dashboard pages (/about, /bots, /site...) from their .html files',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromFile({ filePath: path.join(ROOT, 'functions/dashboard-pages.js') }),
     });
@@ -481,6 +597,8 @@ export class TrafficMonitorStack extends Stack {
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
+      // The public statistics are written by the PublicStats function; a deploy must not delete them.
+      exclude: ['stats/*'],
       // Browsers revalidate on every load (a 304 when unchanged), so a deploy shows up at once.
       cacheControl: [s3deploy.CacheControl.noCache()],
     });
@@ -518,5 +636,7 @@ export class TrafficMonitorStack extends Stack {
     new CfnOutput(this, 'DashboardFunctionName', { value: dashboardHandler.functionName });
     new CfnOutput(this, 'HostingListFunctionName', { value: hostingUpdater.functionName });
     new CfnOutput(this, 'BotClassifierFunctionName', { value: botClassifier.functionName });
+    new CfnOutput(this, 'PublicStatsFunctionName', { value: publicStats.functionName });
+    new CfnOutput(this, 'LogMergeFunctionName', { value: logMerge.functionName });
   }
 }
