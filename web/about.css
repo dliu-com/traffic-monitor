@@ -118,3 +118,13 @@
   .about .status.fixed, .about .risk-medium { color: #fbbf24; }
   .about .risk-low { color: #4ade80; }
 }
+
+/* Tabs between the technical pages (same as weiqi.dliu.com/about). */
+:root { --tab-text: #52636c; --tab-current: #202629; --tab-accent: #805719; }
+@media (prefers-color-scheme: dark) { :root { --tab-text: #9ca3af; --tab-current: #e5e7eb; --tab-accent: #d29a45; } }
+.info-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; max-width: 980px; margin: 4px 0 18px; border-bottom: 1px solid var(--line); }
+.info-tabs::-webkit-scrollbar { display: none; }
+.info-tabs a { flex: none; padding: 9px 14px; color: var(--tab-text); font-weight: 600; font-size: 15px; text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.info-tabs a:hover { color: var(--tab-accent); }
+.info-tabs a[aria-current="page"] { color: var(--tab-current); border-bottom-color: var(--tab-accent); }
+@media (max-width: 600px) { .info-tabs a { padding: 8px 10px; font-size: 14px; } }

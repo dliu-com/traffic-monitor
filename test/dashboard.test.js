@@ -134,7 +134,8 @@ describe('sql', () => {
 
   test('ip queries cover every site and validate the IP', () => {
     const queries = ipQueries(filters, '203.0.113.7', env);
-    expect(Object.keys(queries)).toEqual(['summary', 'sites']);
+    expect(Object.keys(queries)).toEqual(['summary', 'sites', 'reputation']);
+    expect(queries.reputation).toContain('FROM "traffic"."ip_reputation"');
     for (const sql of Object.values(queries)) {
       expect(sql).toContain("ip = '203.0.113.7'");
       expect(sql).not.toContain("AND site = 'cyy'");
@@ -190,16 +191,17 @@ describe('sql', () => {
 describe('bots', () => {
   const hidden = parseFilters({ site: 'cyy' }, NOW, env);
   const shown = parseFilters({ site: 'cyy', bots: 'include' }, NOW, env);
-  const DROP = 'WHERE NOT (is_ua_bot OR is_hosting)';
+  const DROP = 'WHERE bot_reason IS NULL';
 
-  test('bots (by user agent or hosting network) are dropped by default, kept with bots=include', () => {
+  test('bots (by user agent or the daily verdicts) are dropped by default, kept with bots=include', () => {
     const sql = overviewQueries(hidden, env).summary;
     expect(sql).toContain(DROP);
     expect(sql).toContain("coalesce(ua, '') IN ('', '-')");
-    expect(sql).toContain("coalesce(asn IN ('");
-    expect(sql).toContain("'16509'");
-    expect(sql).toContain("'8075'");
-    expect(sql).not.toContain("'13335'");
+    expect(sql).toContain('FROM "traffic"."bot_ips"');
+    expect(sql).toContain("WHERE dt BETWEEN '2026-10-03' AND '2026-10-09'");
+    expect(sql).toContain('LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip');
+    expect(sql).toContain("AND site = 'cyy'");
+    expect(sql).not.toMatch(/asn IN \(/);
     expect(overviewQueries(shown, env).summary).not.toContain(DROP);
     for (const list of ['ips', 'pages', 'page_ips']) {
       expect(listQuery(hidden, { list, path: '/a' }, env).sql).toContain(DROP);
@@ -258,7 +260,7 @@ describe('handler', () => {
     Object.assign(process.env, env, { SITE_URL: 'https://traffic.dliu.com' });
   });
 
-  test('networks come from the hosting list, cached by the browser, and feed the bot SQL', async () => {
+  test('networks come from the hosting list and are cached by the browser', async () => {
     const custom = createHandler({
       loadConfig: async () => config,
       runQuery: async (sql) => { queries.push(sql); return [{ n: '1' }]; },
@@ -270,11 +272,75 @@ describe('handler', () => {
     const response = await call('/api/networks', signedIn);
     expect(response.headers['cache-control']).toBe('private, max-age=3600');
     expect(JSON.parse(response.body)).toEqual({ networks: { 64500: 'Example Cloud' } });
-    queries.length = 0;
-    await call('/api/overview', { ...signedIn, queryStringParameters: { part: 'summary' } });
-    expect(queries[0]).toContain("coalesce(asn IN ('64500'), false)");
-    await request('/api/overview', { ...signedIn, queryStringParameters: { part: 'summary' } });
-    expect(queries[1]).toContain("'16509'");
+  });
+
+  describe('bot check', () => {
+    const SITE = 'https://traffic.dliu.com';
+    const setup = (stored, { invokeFails = false } = {}) => {
+      const writes = [];
+      const invokes = [];
+      const s3 = {
+        send: async (command) => {
+          const name = command.constructor.name;
+          if (name === 'GetObjectCommand') {
+            if (!stored) throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+            return { Body: { transformToString: async () => JSON.stringify(stored) } };
+          }
+          writes.push({ key: command.input.Key, body: JSON.parse(command.input.Body) });
+          return {};
+        },
+      };
+      const lambda = { send: async (command) => { if (invokeFails) throw new Error('nope'); invokes.push(command.input); return {}; } };
+      const custom = createHandler({ loadConfig: async () => config, runQuery: async () => [], s3, lambda, now: () => NOW });
+      const call = (path, method, extra = {}) => custom({ rawPath: path, requestContext: { http: { method } }, ...extra });
+      return { writes, invokes, call };
+    };
+    const post = (origin = SITE) => ({ ...signedIn, headers: { origin } });
+
+    beforeAll(() => { process.env.BOTS_BUCKET = 'logs'; process.env.BOTS_FUNCTION = 'classifier'; });
+
+    test('run is POST only, needs a session and the dashboard origin', async () => {
+      const { call, invokes } = setup(null);
+      expect((await call('/api/bots/run', 'GET', signedIn)).statusCode).toBe(405);
+      expect((await call('/api/bots', 'POST', signedIn)).statusCode).toBe(405);
+      expect((await call('/api/bots/run', 'POST', { headers: { origin: SITE } })).statusCode).toBe(401);
+      expect((await call('/api/bots/run', 'POST', post('https://evil.example'))).statusCode).toBe(403);
+      expect((await call('/api/bots/run', 'POST', { ...signedIn })).statusCode).toBe(403);
+      expect(invokes).toHaveLength(0);
+    });
+
+    test('run starts the classifier in the background and records it', async () => {
+      const { call, invokes, writes } = setup({ state: 'done', started: '2026-10-08T00:30:00.000Z' });
+      const response = await call('/api/bots/run', 'POST', post());
+      expect(response.statusCode).toBe(202);
+      expect(JSON.parse(response.body).status).toMatchObject({ state: 'running', trigger: 'dashboard' });
+      expect(writes).toEqual([{ key: 'bots/status.json', body: expect.objectContaining({ state: 'running' }) }]);
+      expect(invokes).toEqual([{ FunctionName: 'classifier', InvocationType: 'Event', Payload: JSON.stringify({ trigger: 'dashboard', includeToday: true }) }]);
+    });
+
+    test('only one run at a time; a stale run does not block', async () => {
+      const running = { state: 'running', started: new Date(NOW - 60000).toISOString() };
+      const busy = setup(running);
+      expect((await busy.call('/api/bots/run', 'POST', post())).statusCode).toBe(409);
+      expect(busy.invokes).toHaveLength(0);
+      const stale = setup({ state: 'running', started: new Date(NOW - 20 * 60000).toISOString() });
+      expect((await stale.call('/api/bots/run', 'POST', post())).statusCode).toBe(202);
+    });
+
+    test('a failed start is recorded as failed', async () => {
+      const { call, writes } = setup(null, { invokeFails: true });
+      expect((await call('/api/bots/run', 'POST', post())).statusCode).toBe(500);
+      expect(writes.map((w) => w.body.state)).toEqual(['running', 'failed']);
+    });
+
+    test('status reports the last run, and a stale run as failed', async () => {
+      expect(JSON.parse((await setup(null).call('/api/bots', 'GET', signedIn)).body)).toEqual({ status: null });
+      const done = { state: 'done', started: '2026-10-08T00:30:00.000Z', finished: '2026-10-08T00:31:00.000Z' };
+      expect(JSON.parse((await setup(done).call('/api/bots', 'GET', signedIn)).body)).toEqual({ status: done });
+      const stale = { state: 'running', started: new Date(NOW - 20 * 60000).toISOString() };
+      expect(JSON.parse((await setup(stale).call('/api/bots', 'GET', signedIn)).body).status.state).toBe('failed');
+      expect((await setup(done).call('/api/bots', 'GET')).statusCode).toBe(401);
+    });
   });
 
   test('missing sign-in settings return 503, not 500', async () => {
@@ -310,7 +376,7 @@ describe('handler', () => {
     queries.length = 0;
     const response = await request('/api/ip', { ...signedIn, queryStringParameters: { ip: '2001:db8::1', site: 'cyy', range: '7d' } });
     expect(response.statusCode).toBe(200);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(3);
     expect(JSON.parse(response.body).filters.site).toBe('all');
     expect((await request('/api/ip', { ...signedIn, queryStringParameters: { ip: "x'" } })).statusCode).toBe(400);
   });

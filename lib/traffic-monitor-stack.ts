@@ -31,6 +31,8 @@ export const GLUE_DATABASE = 'traffic';
 export const GLUE_TABLE = 'cloudfront_logs';
 export const ATHENA_WORKGROUP = 'traffic';
 const HOSTING_KEY = 'hosting/asns.json';
+export const GLUE_BOTS_TABLE = 'bot_ips';
+export const GLUE_REPUTATION_TABLE = 'ip_reputation';
 export const PARAMETER_PREFIX = '/traffic-monitor';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
 export const GEO_POLICY_NAME = 'dliu-traffic-geo';
@@ -91,6 +93,8 @@ export class TrafficMonitorStack extends Stack {
         { id: 'expire-logs', prefix: 'logs/', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-unprocessed-raw', prefix: 'raw/', expiration: Duration.days(7) },
         { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(7) },
+        { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
+        { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
         { id: 'abort-multipart', abortIncompleteMultipartUploadAfter: Duration.days(1) },
       ],
     });
@@ -208,6 +212,48 @@ export class TrafficMonitorStack extends Stack {
     });
     table.addResourceDependency(database);
 
+    // JSON-lines tables written by the daily bot classifier (lambda/dashboard/bots.js), one folder per day.
+    const jsonTable = (id: string, name: string, prefix: string, columns: Array<[string, string]>) => {
+      const t = new glue.CfnTable(this, id, {
+        catalogId: this.account,
+        databaseName: GLUE_DATABASE,
+        tableInput: {
+          name,
+          tableType: 'EXTERNAL_TABLE',
+          parameters: {
+            'projection.enabled': 'true',
+            'projection.dt.type': 'date',
+            'projection.dt.format': 'yyyy-MM-dd',
+            'projection.dt.range': '2026-01-01,NOW',
+            'projection.dt.interval': '1',
+            'projection.dt.interval.unit': 'DAYS',
+            'storage.location.template': `s3://${logBucket.bucketName}/${prefix}/dt=` + '${dt}/',
+          },
+          partitionKeys: [{ name: 'dt', type: 'string' }],
+          storageDescriptor: {
+            location: `s3://${logBucket.bucketName}/${prefix}/`,
+            columns: columns.map(([colName, type]) => ({ name: colName, type })),
+            inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
+            outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+            serdeInfo: { serializationLibrary: 'org.openx.data.jsonserde.JsonSerDe' },
+          },
+        },
+      });
+      t.addResourceDependency(database);
+      return t;
+    };
+    jsonTable('BotIpsTable', GLUE_BOTS_TABLE, 'bots', [['ip', 'string'], ['reason', 'string']]);
+    jsonTable('IpReputationTable', GLUE_REPUTATION_TABLE, 'reputation', [
+      ['ip', 'string'], ['score', 'int'], ['reports', 'int'], ['usage_type', 'string'], ['isp', 'string'],
+      ['domain', 'string'], ['is_tor', 'boolean'], ['checked', 'string'],
+    ]);
+    const glueResources = [
+      this.formatArn({ service: 'glue', resource: 'catalog' }),
+      this.formatArn({ service: 'glue', resource: 'database', resourceName: GLUE_DATABASE }),
+      ...[GLUE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE].map((name) =>
+        this.formatArn({ service: 'glue', resource: 'table', resourceName: `${GLUE_DATABASE}/${name}` })),
+    ];
+
     const workGroup = new athena.CfnWorkGroup(this, 'WorkGroup', {
       name: ATHENA_WORKGROUP,
       description: 'Traffic dashboard queries',
@@ -238,9 +284,12 @@ export class TrafficMonitorStack extends Stack {
         SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
         GLUE_DATABASE,
         GLUE_TABLE,
+        GLUE_BOTS_TABLE,
+        GLUE_REPUTATION_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
         HOSTING_BUCKET: logBucket.bucketName,
+        BOTS_BUCKET: logBucket.bucketName,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
         retention: logs.RetentionDays.ONE_MONTH,
@@ -249,18 +298,15 @@ export class TrafficMonitorStack extends Stack {
     });
 
     const workGroupArn = this.formatArn({ service: 'athena', resource: 'workgroup', resourceName: ATHENA_WORKGROUP });
-    dashboardHandler.addToRolePolicy(new iam.PolicyStatement({
+    const athenaQuery = new iam.PolicyStatement({
       actions: ['athena:StartQueryExecution', 'athena:GetQueryExecution', 'athena:GetQueryResults', 'athena:StopQueryExecution'],
       resources: [workGroupArn],
-    }));
-    dashboardHandler.addToRolePolicy(new iam.PolicyStatement({
+    });
+    const glueRead = new iam.PolicyStatement({
       actions: ['glue:GetDatabase', 'glue:GetTable', 'glue:GetPartition', 'glue:GetPartitions'],
-      resources: [
-        this.formatArn({ service: 'glue', resource: 'catalog' }),
-        this.formatArn({ service: 'glue', resource: 'database', resourceName: GLUE_DATABASE }),
-        this.formatArn({ service: 'glue', resource: 'table', resourceName: `${GLUE_DATABASE}/${GLUE_TABLE}` }),
-      ],
-    }));
+      resources: glueResources,
+    });
+    dashboardHandler.addToRolePolicy(glueRead);
     dashboardHandler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:GetParameters'],
       resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: PARAMETER_PREFIX.slice(1) + '/*' })],
@@ -270,8 +316,11 @@ export class TrafficMonitorStack extends Stack {
       resources: ['*'],
       conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
     }));
+    dashboardHandler.addToRolePolicy(athenaQuery);
     logBucket.grantRead(dashboardHandler, 'logs/*');
     logBucket.grantRead(dashboardHandler, HOSTING_KEY);
+    logBucket.grantRead(dashboardHandler, 'bots/*');
+    logBucket.grantRead(dashboardHandler, 'reputation/*');
     resultsBucket.grantReadWrite(dashboardHandler);
 
     // Weekly refresh of the cloud/hosting network list (ASNs counted as bots) from public lists.
@@ -294,6 +343,55 @@ export class TrafficMonitorStack extends Stack {
       schedule: events.Schedule.cron({ weekDay: 'MON', hour: '4', minute: '0' }),
       targets: [new eventTargets.LambdaFunction(hostingUpdater, { retryAttempts: 2 })],
     });
+
+    // Daily bot classifier: per-day bot verdicts for each IP, with AbuseIPDB lookups (bots.js).
+    const botClassifier = new lambda.Function(this, 'BotClassifier', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'bots.update',
+      code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
+      timeout: Duration.minutes(15),
+      memorySize: 512,
+      description: 'Judges which IPs were bots each day (hosting network, scanner, AbuseIPDB, headless)',
+      environment: {
+        GLUE_DATABASE,
+        GLUE_TABLE,
+        GLUE_BOTS_TABLE,
+        GLUE_REPUTATION_TABLE,
+        ATHENA_WORKGROUP,
+        PARAMETER_PREFIX,
+        HOSTING_BUCKET: logBucket.bucketName,
+        BOTS_BUCKET: logBucket.bucketName,
+      },
+      logGroup: new logs.LogGroup(this, 'BotClassifierLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    botClassifier.addToRolePolicy(athenaQuery);
+    botClassifier.addToRolePolicy(glueRead);
+    botClassifier.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: PARAMETER_PREFIX.slice(1) + '/abuseipdb-api-key' })],
+    }));
+    botClassifier.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['kms:Decrypt'],
+      resources: ['*'],
+      conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
+    }));
+    logBucket.grantRead(botClassifier, 'logs/*');
+    logBucket.grantRead(botClassifier, HOSTING_KEY);
+    logBucket.grantReadWrite(botClassifier, 'bots/*');
+    logBucket.grantReadWrite(botClassifier, 'reputation/*');
+    resultsBucket.grantReadWrite(botClassifier);
+    new events.Rule(this, 'BotClassifierDaily', {
+      description: 'Judge the last week of IPs as bots or people, just after midnight UTC',
+      schedule: events.Schedule.cron({ hour: '0', minute: '30' }),
+      targets: [new eventTargets.LambdaFunction(botClassifier, { retryAttempts: 2 })],
+    });
+    // The dashboard's "Check bots now" button starts a run and reads its status.
+    botClassifier.grantInvoke(dashboardHandler);
+    logBucket.grantPut(dashboardHandler, 'bots/status.json');
+    dashboardHandler.addEnvironment('BOTS_FUNCTION', botClassifier.functionName);
 
     const functionUrl = dashboardHandler.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.AWS_IAM });
 
@@ -342,7 +440,7 @@ export class TrafficMonitorStack extends Stack {
     };
 
     const pagesFunction = new cloudfront.Function(this, 'DashboardPagesFunction', {
-      comment: 'Serves /about and /security from their .html files',
+      comment: 'Serves /about, /detect-bot and /security from their .html files',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromFile({ filePath: path.join(ROOT, 'functions/dashboard-pages.js') }),
     });
@@ -359,7 +457,8 @@ export class TrafficMonitorStack extends Stack {
         functionAssociations: [{ function: pagesFunction, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
-        'api/*': lambdaBehavior,
+        // POST is used only by /api/bots/run; the Lambda answers 405 to other non-GET calls.
+        'api/*': { ...lambdaBehavior, allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL },
         'auth/*': lambdaBehavior,
       },
       domainNames: [domainName],
@@ -418,5 +517,6 @@ export class TrafficMonitorStack extends Stack {
     new CfnOutput(this, 'AthenaWorkGroup', { value: workGroup.name });
     new CfnOutput(this, 'DashboardFunctionName', { value: dashboardHandler.functionName });
     new CfnOutput(this, 'HostingListFunctionName', { value: hostingUpdater.functionName });
+    new CfnOutput(this, 'BotClassifierFunctionName', { value: botClassifier.functionName });
   }
 }

@@ -9,6 +9,8 @@ describe('dashboard-pages CloudFront function', () => {
   test.each([
     ['/about', '/about.html'],
     ['/about/', '/about.html'],
+    ['/detect-bot', '/detect-bot.html'],
+    ['/detect-bot/', '/detect-bot.html'],
     ['/security', '/security.html'],
     ['/security/', '/security.html'],
     ['/site', '/site.html'],

@@ -106,13 +106,24 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
-- A request is a bot if its user agent is empty, `-`, or looks like a crawler or script, or if its IP belongs to a
-  cloud, hosting or VPN network (by ASN). CloudFront itself doesn't flag bots. Visitor IDs are worked out before bots are dropped.
+- A request is a bot if its user agent is empty, `-`, or looks like a crawler or script (checked in every query), or if
+  the daily bot check flagged its IP for that UTC day. CloudFront itself doesn't flag bots. Visitor IDs are worked out
+  before bots are dropped. Rules and quota handling are documented at `/detect-bot` (`web/detect-bot.js`).
+- The `BotClassifier` Lambda (`lambda/dashboard/bots.js`) runs at 00:30 UTC, after `make deploy`, from the dashboard's
+  "Check bots now" button (which also covers today) or with `make classify-bots DAYS=N` (default 7, up to 400). For each
+  day and IP it picks the first matching reason: `hosting` (ASN on the hosting list), `probe` (asked for paths like
+  `/.env` or `wp-login`), `abuse` (AbuseIPDB score ≥ 50, Tor, or data centre) or `headless` (no script, stylesheet,
+  font or `dl_vid` cookie all day). Verdicts go to `bots/dt=<day>/bots.json` (Glue table `bot_ips`).
+- AbuseIPDB (free plan, 1,000 lookups a day): store the key with `make set-abuseipdb-key` (SSM SecureString
+  `/traffic-monitor/abuseipdb-api-key`). Only IPs that still look like people are looked up, each at most once per run
+  and once per 30 days, newest day and busiest first, at most 900 per run; a run stops at HTTP 429 or when no lookups
+  are left, and the rest wait for the next run. Results go to `reputation/dt=<day>/` (table `ip_reputation`) for 180 days.
+  Only the IP is sent. Without a key every other rule still runs.
 - The hosting network list (`lambda/dashboard/hosting.js`, about 950 ASNs) is a built-in core (AWS, Google, Azure,
   Oracle, DigitalOcean, OVH, Hetzner, Censys…) plus two public lists, [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list)
   and [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) (datacenter ASNs). The `HostingListUpdater` Lambda
   downloads them every Monday 04:00 UTC (and after `make deploy`; run it any time with `make update-hosting`),
-  validates and merges them, and saves `hosting/asns.json` in the log bucket. A source that fails or looks too small
+  validates and merges them, and saves `hosting/asns.json` in the log bucket, which the bot check reads. A source that fails or looks too small
   is skipped, and if the merged list looks wrong nothing is written, so the last copy stays. The dashboard reads the
   copy at most hourly and falls back to the built-in core. Networks that also carry people (Cloudflare WARP, iCloud
   Private Relay via Akamai, Fastly and Apple) are excluded in code and always win. People on commercial VPNs count as bots.

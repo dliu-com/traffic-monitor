@@ -1,5 +1,5 @@
 import {
-  $, botToggle, botsNote, browserLabel, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime, ipLink, isBot, kpis,
+  $, botCheck, botToggle, botsNote, browserLabel, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime, ipLink, isBot, kpis,
   pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName, siteUrl, start, state, widget,
 } from './dash.js';
 
@@ -88,7 +88,7 @@ logCard.body.append(log.node);
 
 page.append(
   el('p', { class: 'crumbs' }, [home, ' › ', siteCrumb, ' › Page']),
-  el('div', { class: 'page-head' }, [el('h2', {}, [path, openLink]), el('div', { class: 'page-tools' }, [botToggle(load), periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', {}, [path, openLink]), el('div', { class: 'page-tools' }, [botCheck(load), botToggle(load), periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,

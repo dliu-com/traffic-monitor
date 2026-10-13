@@ -1,5 +1,5 @@
 import {
-  $, botToggle, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
+  $, botCheck, botToggle, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
   filters, fmt, formatTime, handleError, ipLink, isBot, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
   sparkline, start, state, widget,
 } from './dash.js';
@@ -40,7 +40,7 @@ ipCard.head.append(ips.search);
 ipCard.body.append(ips.node);
 
 page.append(
-  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [botToggle(load), picker.node, periodBar(load)])]),
+  el('div', { class: 'page-head' }, [el('h2', { text: 'All sites' }), el('div', { class: 'page-tools' }, [botCheck(load), botToggle(load), picker.node, periodBar(load)])]),
   periodNote,
   note.node,
   kpiBox,

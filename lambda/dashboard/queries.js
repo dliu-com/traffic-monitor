@@ -1,7 +1,5 @@
 'use strict';
 
-const { BUILT_IN, validAsn } = require('./hosting');
-
 // All user input is validated against strict allowlists/patterns before it is placed in SQL.
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANGE_HOURS = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24, '90d': 90 * 24 };
@@ -22,25 +20,20 @@ const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
 
-// Cloud and hosting networks (by ASN) count as bots; see hosting.js. Only validated numbers reach SQL.
-const hostingSqlFor = (networks) => Object.keys(networks).map(validAsn).filter(Boolean).map((asn) => `'${asn}'`).join(', ') || "''";
-let HOSTING_SQL = hostingSqlFor(BUILT_IN);
-function useHostingNetworks(networks) {
-  HOSTING_SQL = hostingSqlFor(networks);
-}
-
 class BadRequest extends Error {}
 
 function settings(env = process.env) {
   const database = env.GLUE_DATABASE || 'traffic';
   const table = env.GLUE_TABLE || 'cloudfront_logs';
-  if (!IDENTIFIER.test(database) || !IDENTIFIER.test(table)) throw new Error('Invalid Glue identifiers');
+  const botsTable = env.GLUE_BOTS_TABLE || 'bot_ips';
+  const reputationTable = env.GLUE_REPUTATION_TABLE || 'ip_reputation';
+  if (![database, table, botsTable, reputationTable].every((name) => IDENTIFIER.test(name))) throw new Error('Invalid Glue identifiers');
   const siteHosts = {};
   for (const entry of String(env.SITES || '').split(',')) {
     const [key, host] = entry.split('=').map((s) => s.trim());
     if (key) siteHosts[key] = host || key;
   }
-  return { database, table, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
+  return { database, table, botsTable, reputationTable, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
 }
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -91,10 +84,13 @@ function timeWindow(query, now) {
 // ID the visitor function assigned and logged (vid_log), but only if the browser later sent that ID
 // back; clients that never keep cookies would otherwise count as a new visitor on every request,
 // so they fall back to their IP address instead.
-// A bot is a crawler or script by user agent, a request with no user agent, or one from a hosting network.
+// Bots (bot_reason says why):
+//   agent - a crawler or script by user agent, or no user agent (caught as requests arrive)
+//   hosting, probe, abuse, headless - the IP was judged a bot for that day by the daily job (bots.js);
+//     requests from the current day count as people until that job runs after midnight UTC
 // Bots are dropped (after visitor IDs are worked out) unless filters.bots is 'include'.
 function base(filters, env = process.env) {
-  const { database, table } = settings(env);
+  const { database, table, botsTable } = settings(env);
   const siteFilter = filters.site === 'all' ? '' : `\n      AND site = '${filters.site}'`;
   const countryFilter = !filters.country ? ''
     : filters.country === 'unknown' ? `\n      AND coalesce(c_country, '-') = '-'` : `\n      AND c_country = '${filters.country}'`;
@@ -102,7 +98,12 @@ function base(filters, env = process.env) {
   if (filters.since) window.push(`ts >= from_iso8601_timestamp('${filters.since.replace(' ', 'T')}Z')`);
   if (filters.until) window.push(`ts < from_iso8601_timestamp('${filters.until.replace(' ', 'T')}Z')`);
   const sinceFilter = window.length ? `\n    WHERE ${window.join(' AND ')}` : '';
-  return `WITH r AS (
+  return `WITH b AS (
+    SELECT dt AS bot_dt, ip AS bot_ip, max(reason) AS flagged
+    FROM "${database}"."${botsTable}"
+    WHERE dt BETWEEN '${filters.startDay}' AND '${filters.endDay}'
+    GROUP BY dt, ip
+  ), r AS (
     SELECT site,
       from_iso8601_timestamp(concat(cast("date" AS varchar), 'T', time, 'Z')) AS ts,
       c_ip AS ip,
@@ -118,25 +119,28 @@ function base(filters, env = process.env) {
       x_edge_result_type AS result,
       sc_bytes AS bytes,
       nullif(c_country, '-') AS country,
-      CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn
-    FROM "${database}"."${table}"
+      CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn,
+      flagged
+    FROM "${database}"."${table}" LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip
     WHERE dt BETWEEN '${filters.startDay}' AND '${filters.endDay}'${siteFilter}${countryFilter}
   ), w AS (
     SELECT *,
       CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw END AS city,
       coalesce(cookie_id, CASE WHEN logged_id IS NOT NULL
         AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id,
-      coalesce(asn IN (${HOSTING_SQL}), false) AS is_hosting,
-      (coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}')) AS is_ua_bot
+      CASE WHEN coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}') THEN 'agent' ELSE flagged END AS bot_reason
     FROM r${sinceFilter}
   ), v AS (
     SELECT *,
       coalesce(visitor_id, concat('ip:', ip)) AS visitor,
-      (is_ua_bot OR is_hosting) AS is_bot,
+      bot_reason IS NOT NULL AS is_bot,
       (method = 'GET' AND status < 400 AND NOT regexp_like(lower(path), '${ASSET}') AND NOT starts_with(path, '/api/')) AS is_page
-    FROM w${filters.bots === 'include' ? '' : '\n    WHERE NOT (is_ua_bot OR is_hosting)'}
+    FROM w${filters.bots === 'include' ? '' : '\n    WHERE bot_reason IS NULL'}
   )`;
 }
+
+// Why a group of requests counts as bots (the latest reason), for row tooltips.
+const REASON = 'max_by(bot_reason, ts) FILTER (WHERE bot_reason IS NOT NULL) AS bot_reason';
 
 // Latest known city: requests outside the visitor function (other behaviors, older logs) have none.
 const LAST_CITY = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
@@ -211,7 +215,7 @@ const LISTS = {
     sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, ${REASON}, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
 FROM v GROUP BY ip`,
     search: ['ip', 'sites', 'last_ua', 'country', 'city', 'asn'],
     order: 'last_seen DESC, ip',
@@ -256,7 +260,7 @@ GROUP BY 1`,
     return {
       // The IP page shows everything an IP did, bots included.
       allBots: Boolean(q.ip),
-      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, result, is_bot, is_page
+      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, result, is_bot, bot_reason, is_page
 FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       search: ['site', 'ip', 'country', 'city', 'method', 'path', 'status', 'referrer', 'ua'],
       order: '"time" DESC, ip, path',
@@ -266,7 +270,7 @@ FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
   page_visitors: (q) => ({
     sql: `SELECT visitor, max(visitor_id) AS visitor_id, count(*) AS views, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
   max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua,
-  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot
+  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
 FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY visitor`,
     search: ['visitor_id', 'last_ip', 'country', 'city', 'last_ua'],
@@ -275,7 +279,7 @@ GROUP BY visitor`,
   // The IP addresses one page was viewed from.
   page_ips: (q) => ({
     sql: `SELECT ip, count(*) AS views, count(DISTINCT visitor) AS visitors, max_by(country, ts) AS country, ${LAST_CITY},
-  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, max_by(asn, ts) AS asn
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, ${REASON}, max_by(asn, ts) AS asn
 FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY ip`,
     search: ['ip', 'country', 'city', 'last_ua'],
@@ -289,7 +293,7 @@ GROUP BY ip`,
       sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
   ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY},
-  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot
+  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
 FROM v
 WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
 GROUP BY ip`,
@@ -330,6 +334,7 @@ OFFSET ${offset} LIMIT ${limit}`,
 // Summary of one IP address across every site; its long lists come from listQuery.
 function ipQueries(filters, ip, env = process.env) {
   const match = requireIp(ip);
+  const { database, reputationTable } = settings(env);
   const cte = base({ ...filters, site: 'all', country: null, bots: 'include' }, env);
   return {
     summary: `${cte}
@@ -339,6 +344,7 @@ SELECT count(*) AS requests, count_if(is_page) AS pageviews,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
   count(DISTINCT visitor_id) AS cookies,
   max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
+  array_join(array_sort(array_agg(DISTINCT bot_reason) FILTER (WHERE bot_reason IS NOT NULL)), ',') AS bot_reasons,
   count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
 FROM v WHERE ${match}`,
     sites: `${cte}
@@ -346,6 +352,11 @@ SELECT site, count(*) AS requests, count_if(is_page) AS pageviews,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
 FROM v WHERE ${match}
 GROUP BY site ORDER BY max(ts) DESC`,
+    // The latest AbuseIPDB result (bots.js), whenever it was checked.
+    reputation: `SELECT max_by(score, checked) AS score, max_by(reports, checked) AS reports, max_by(usage_type, checked) AS usage_type,
+  max_by(isp, checked) AS isp, max_by(is_tor, checked) AS is_tor, max(checked) AS checked
+FROM "${database}"."${reputationTable}" WHERE ${match}
+HAVING count(*) > 0`,
   };
 }
 
@@ -366,4 +377,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BadRequest, PAGE_MAX, base, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, useHostingNetworks };
+module.exports = { BOT, BadRequest, IP, PAGE_MAX, base, isoDay, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime };

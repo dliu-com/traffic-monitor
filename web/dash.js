@@ -43,7 +43,67 @@ export function botToggle(onChange) {
     setIncludeBots(input.checked);
     onChange();
   });
-  return el('label', { class: 'bot-toggle', title: 'Bots: crawlers and scripts, requests without a browser name, and visits from cloud or hosting networks' }, [input, ' Include bots']);
+  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the daily check. See /detect-bot.' }, [input, ' Include bots']);
+}
+
+// Why a request or IP counts as a bot (see /detect-bot).
+export const BOT_REASONS = {
+  agent: 'crawler or script (user agent)',
+  hosting: 'cloud or hosting network',
+  probe: 'scanned for weak spots',
+  abuse: 'reported on AbuseIPDB',
+  headless: 'never loaded scripts, styles or the cookie',
+};
+export const botReasonText = (reasons) => String(reasons || '').split(',').filter((r) => Object.hasOwn(BOT_REASONS, r)).map((r) => BOT_REASONS[r]).join('; ');
+
+// The empty-body hash CloudFront's origin access control needs for a POST to the Lambda URL.
+const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+// "Check bots now": starts the bot check (last week plus today) and shows when it last ran.
+// onDone reloads the page's widgets when a run this page is watching finishes.
+export function botCheck(onDone) {
+  const button = el('button', { type: 'button', class: 'bot-check', text: 'Check bots now' });
+  const info = el('span', { class: 'bot-check-info' });
+  let timer;
+  let watching = false;
+  const show = (status) => {
+    clearTimeout(timer);
+    const running = status && status.state === 'running';
+    button.disabled = running;
+    button.textContent = running ? 'Checking bots…' : 'Check bots now';
+    if (!status) info.textContent = 'Bots not checked yet';
+    else if (running) info.textContent = `Started ${formatTime(status.started)}; takes about a minute`;
+    else if (status.state === 'failed') info.textContent = `Last check failed ${formatTime(status.finished || status.started)}`;
+    else {
+      const left = status.summary && status.summary.abuseipdb && status.summary.abuseipdb.left;
+      info.textContent = `Bots checked ${formatTime(status.finished)}${left ? ` · ${fmt(left)} IPs wait for tomorrow's AbuseIPDB allowance` : ''}`;
+    }
+    info.title = status && status.summary ? `Checked ${status.summary.from} to ${status.summary.to} (UTC)` : '';
+    if (running) timer = setTimeout(poll, 10000);
+    else if (watching) {
+      watching = false;
+      if (status && status.state === 'done') onDone();
+    }
+  };
+  const poll = () => api('/api/bots').then(({ status }) => show(status)).catch(() => { info.textContent = ''; });
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/bots/run', {
+        method: 'POST', credentials: 'same-origin', headers: { accept: 'application/json', 'x-amz-content-sha256': EMPTY_SHA256 },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok && response.status !== 409) throw new Error(body.error || `Request failed (${response.status})`);
+      watching = true;
+      if (body.status) show(body.status);
+      else poll();
+    } catch (error) {
+      button.disabled = false;
+      setStatus(error.message, true);
+    }
+  });
+  poll();
+  return el('div', { class: 'bot-check-box' }, [button, info]);
 }
 // Wording for notes and hints that depends on the switch.
 export const botsNote = () => (includeBots() ? 'Bots are included and highlighted.' : 'Bots are left out; tick Include bots to see them.');
@@ -416,7 +476,8 @@ function tableBody(table, columns, rows, empty, rowClass) {
   const body = el('tbody');
   if (!rows.length) body.append(el('tr', {}, [el('td', { class: 'empty', colspan: columns.length, text: empty })]));
   for (const row of rows) {
-    const tr = el('tr', { class: rowClass ? rowClass(row) : null });
+    const reason = row.bot_reason && botReasonText(row.bot_reason);
+    const tr = el('tr', { class: rowClass ? rowClass(row) : null, title: reason ? `Bot: ${reason}` : null });
     for (const column of columns) {
       const value = column.value(row);
       const text = value == null ? '' : String(value);

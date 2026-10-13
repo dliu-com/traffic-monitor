@@ -27,7 +27,7 @@ function toObjects(resultSet, skipHeader) {
   });
 }
 
-async function runQuery(sql, { athena = client(), maxRows = 1000, wait = sleep } = {}) {
+async function runQuery(sql, { athena = client(), maxRows = 1000, wait = sleep, deadlineMs = POLL_DEADLINE_MS } = {}) {
   const {
     StartQueryExecutionCommand,
     GetQueryExecutionCommand,
@@ -49,7 +49,7 @@ async function runQuery(sql, { athena = client(), maxRows = 1000, wait = sleep }
     if (state === 'FAILED' || state === 'CANCELLED') {
       throw new Error(`Athena query ${state.toLowerCase()}: ${QueryExecution.Status.StateChangeReason || 'unknown reason'}`);
     }
-    if (Date.now() - started > POLL_DEADLINE_MS) throw new Error('Athena query timed out');
+    if (Date.now() - started > deadlineMs) throw new Error('Athena query timed out');
     await wait(delay);
     delay = Math.min(delay * 1.5, 1000);
   }

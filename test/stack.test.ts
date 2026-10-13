@@ -211,3 +211,42 @@ test('hosting network list is refreshed weekly and readable by the dashboard', (
     Environment: { Variables: Match.objectLike({ HOSTING_BUCKET: Match.anyValue(), GLUE_DATABASE: 'traffic' }) },
   });
 });
+
+test('daily bot check: tables, schedule and least-privilege access', () => {
+  for (const [name, columns] of <[string, string[]][]>[['bot_ips', ['ip', 'reason']], ['ip_reputation', ['ip', 'score', 'reports', 'usage_type', 'isp', 'domain', 'is_tor', 'checked']]]) {
+    template.hasResourceProperties('AWS::Glue::Table', {
+      TableInput: Match.objectLike({
+        Name: name,
+        PartitionKeys: [{ Name: 'dt', Type: 'string' }],
+        Parameters: Match.objectLike({ 'projection.enabled': 'true' }),
+        StorageDescriptor: Match.objectLike({ Columns: columns.map((column) => Match.objectLike({ Name: column })) }),
+      }),
+    });
+  }
+  template.hasResourceProperties('AWS::Lambda::Function', { Handler: 'bots.update', Timeout: 900 });
+  template.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'cron(30 0 * * ? *)' });
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    LifecycleConfiguration: {
+      Rules: Match.arrayWith([
+        Match.objectLike({ Prefix: 'bots/dt=', ExpirationInDays: 365 }),
+        Match.objectLike({ Prefix: 'reputation/', ExpirationInDays: 180 }),
+      ]),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'index.handler',
+    Environment: { Variables: Match.objectLike({ GLUE_BOTS_TABLE: 'bot_ips', GLUE_REPUTATION_TABLE: 'ip_reputation', BOTS_FUNCTION: Match.anyValue() }) },
+  });
+  const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+  expect(policies).toContain('abuseipdb-api-key');
+  expect(policies).toContain('/bots/status.json');
+});
+
+test('only the api behaviour accepts POST (for Check bots now)', () => {
+  const [dist] = Object.values(template.findResources('AWS::CloudFront::Distribution', { Properties: { DistributionConfig: { Comment: 'traffic dashboard' } } })) as any[];
+  const config = dist.Properties.DistributionConfig;
+  const api = config.CacheBehaviors.find((b: any) => b.PathPattern === 'api/*');
+  expect(api.AllowedMethods).toEqual(expect.arrayContaining(['POST']));
+  expect(config.DefaultCacheBehavior.AllowedMethods || ['GET', 'HEAD']).not.toContain('POST');
+  for (const b of config.CacheBehaviors.filter((b: any) => b.PathPattern !== 'api/*')) expect(b.AllowedMethods || []).not.toContain('POST');
+});

@@ -4,7 +4,8 @@ const auth = require('./auth');
 const { loadConfig, NotConfigured } = require('./config');
 const { runQuery } = require('./athena');
 const { loadHosting } = require('./hosting');
-const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, useHostingNetworks } = require('./queries');
+const { STATUS_KEY, readStatus } = require('./bots');
+const { BadRequest, PAGE_MAX, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -36,6 +37,53 @@ function errorPage(statusCode, message, cookies) {
   };
 }
 
+// A run longer than the classifier's 15-minute timeout has died, so another may start.
+const RUN_STALE_MS = 16 * 60 * 1000;
+
+let s3Client;
+let lambdaClient;
+const s3 = () => {
+  if (!s3Client) {
+    const { S3Client } = require('@aws-sdk/client-s3');
+    s3Client = new S3Client({});
+  }
+  return s3Client;
+};
+const lambdaApi = () => {
+  if (!lambdaClient) {
+    const { LambdaClient } = require('@aws-sdk/client-lambda');
+    lambdaClient = new LambdaClient({});
+  }
+  return lambdaClient;
+};
+
+const isRunning = (status, now) => Boolean(status && status.state === 'running' && now - Date.parse(status.started) < RUN_STALE_MS);
+
+// "Check bots now": starts the bot classifier in the background (last week plus today) unless a run is going.
+async function startBotRun(deps, now) {
+  const client = deps.s3 || s3();
+  const bucket = process.env.BOTS_BUCKET;
+  if (isRunning(await readStatus(client, bucket), now)) return json(409, { error: 'A bot check is already running.' });
+  const started = new Date(now).toISOString();
+  const { PutObjectCommand } = require('@aws-sdk/client-s3');
+  const write = (status) => client.send(new PutObjectCommand({
+    Bucket: bucket, Key: STATUS_KEY, ContentType: 'application/json', Body: JSON.stringify(status),
+  }));
+  await write({ state: 'running', trigger: 'dashboard', started });
+  const { InvokeCommand } = require('@aws-sdk/client-lambda');
+  try {
+    await (deps.lambda || lambdaApi()).send(new InvokeCommand({
+      FunctionName: process.env.BOTS_FUNCTION,
+      InvocationType: 'Event',
+      Payload: JSON.stringify({ trigger: 'dashboard', includeToday: true }),
+    }));
+  } catch (error) {
+    await write({ state: 'failed', trigger: 'dashboard', started, finished: started, error: 'The bot check could not be started.' }).catch(() => {});
+    throw error;
+  }
+  return json(202, { status: { state: 'running', trigger: 'dashboard', started } });
+}
+
 function createHandler(deps = {}) {
   const getConfig = deps.loadConfig || loadConfig;
   const query = deps.runQuery || runQuery;
@@ -48,7 +96,8 @@ function createHandler(deps = {}) {
     const path = event.rawPath || '/';
     const params = event.queryStringParameters || {};
     const siteUrl = process.env.SITE_URL;
-    if (method !== 'GET') return json(405, { error: 'Method not allowed' });
+    const botRun = path === '/api/bots/run';
+    if (botRun ? method !== 'POST' : method !== 'GET') return json(405, { error: 'Method not allowed' });
 
     try {
       const config = await getConfig();
@@ -67,11 +116,19 @@ function createHandler(deps = {}) {
       const session = auth.getSession(event, config, clock());
       if (!session) return json(401, { error: 'Not signed in' });
 
+      if (botRun) {
+        // Cross-site requests carry no session (SameSite=Lax); the Origin check is a second guard.
+        const origin = (event.headers && event.headers.origin) || '';
+        if (origin !== siteUrl) return json(403, { error: 'Forbidden' });
+        return await startBotRun(deps, clock());
+      }
+      if (path === '/api/bots') {
+        const status = await readStatus(deps.s3 || s3(), process.env.BOTS_BUCKET);
+        return json(200, { status: status && status.state === 'running' && !isRunning(status, clock()) ? { ...status, state: 'failed', error: 'The bot check stopped without finishing.' } : status });
+      }
       if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
-      const networks = await hosting();
       // Network names for the Browser column; the browser keeps them for an hour (they change weekly).
-      if (path === '/api/networks') return json(200, { networks }, undefined, { 'cache-control': 'private, max-age=3600' });
-      useHostingNetworks(networks);
+      if (path === '/api/networks') return json(200, { networks: await hosting() }, undefined, { 'cache-control': 'private, max-age=3600' });
       if (path === '/api/overview' || path === '/api/ip' || path === '/api/page') {
         const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip)
