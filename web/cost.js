@@ -65,9 +65,6 @@ root.append(flow({
   ],
 }));
 
-add('h2', 'Live queries for guests (not used)');
-add('p', 'Guests could run the same live queries as signed-in users, at about $0.005 per page load: about $0.50 a month for 100 visits, $5 for 1,000 and $50 for 10,000, with no upper limit. Pre-computed files cost about $0.08 a month whatever the traffic, so guests get those.');
-
 add('p', 'Prices are for eu-west-1 (Ireland) and us-east-1 log delivery in October 2026. File counts were measured on the live log bucket. Without dashboard use the monitor costs about $2.80 a year. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, $0.25 per extra GB of logs and $0.10 per million requests.', 'dg-note');
 
 const footer = document.createElement('footer');
