@@ -69,6 +69,8 @@ root.append(table(['Test', 'Result', 'Status'], [
   ['Other HTTP methods', 'POST, PUT, DELETE, PATCH and OPTIONS return 403; TRACE 405; CONNECT 400', PASS],
   ['Path tricks', 'Encoded ../, null bytes, upper case and double slashes never reach the API (400, 403 or 404)', PASS],
   ['Forged sessions', 'No cookie, unsigned, alg:none, swapped payload, expired, wrong key, truncated signature and fake user headers all return 401', PASS],
+  ['Sign-in cookie replayed as a session', 'The __Host-tm_auth cookie that /auth/login gives anyone was signed like a session, so sending it as __Host-tm_session opened the dashboard. Sign-in and session cookies now use different keys and a checked type; all older sessions were ended', FIXED],
+  ['Session cookies in the access logs', 'The sites log the Cookie header for the visitor ID, so the logs also held the sites’ sign-in session cookies for up to a year. The partitioner now keeps only dl_vid, and every filed log was rewritten the same way', FIXED],
   ['Sign-in callback', 'Missing or forged state returns 400; the return address is fixed, so there is no open redirect', PASS],
   ['Sign-in error text', 'Arbitrary text in ?error= was shown on the page (escaped, so not executable). Only known error codes are shown now', FIXED],
   ['Header injection', 'Line breaks in callback parameters cannot add headers or cookies', PASS],
@@ -89,7 +91,8 @@ root.append(table(['Scenario', 'Residual risk', 'Controls'], [
   ['A visitor puts a script in their user agent, referrer or URL so it runs when the admin views the logs (stored XSS)', LOW, 'Every value is rendered with textContent, never innerHTML; CSP blocks inline and third-party scripts; tested with live payloads'],
   ['A crafted sign-in link shows misleading text or script (reflected XSS)', LOW, 'Output is HTML-escaped; only known OAuth error codes are displayed'],
   ['Filters are used to inject SQL into Athena', LOW, 'Sites, ranges, lists and parts come from fixed lists; dates, times, countries (two capital letters), visitor IDs and IPs must match strict patterns; search text is limited to letters, digits and a few safe symbols; no user-written SQL; the role can only read'],
-  ['An attacker forges or steals a session cookie', LOW, 'HMAC-SHA256 signature, 12-hour expiry, HttpOnly, Secure, SameSite=Lax, __Host- prefix so sibling subdomains cannot set it'],
+  ['An attacker forges or steals a session cookie', LOW, 'HMAC-SHA256 signature, 12-hour expiry, HttpOnly, Secure, SameSite=Lax, __Host- prefix so sibling subdomains cannot set it; the sign-in cookie uses a different key and type, so it cannot be replayed as a session'],
+  ['Session cookies of the monitored sites are read from the access logs', LOW, 'CloudFront logs the whole Cookie header, but the partitioner keeps only dl_vid=<id> before filing a log; the unprocessed file lives only until it is filed (seconds), and the bucket is private'],
   ['Login CSRF, code interception or an open redirect', LOW, 'state, nonce and PKCE (S256); fixed redirect URI; ID token signature, issuer, tenant, audience and expiry checked'],
   ['Someone with another Microsoft account signs in', LOW, 'Single-tenant app with assignment required, plus an @dliu.com domain check in the Lambda'],
   ['The Lambda or buckets are called without CloudFront', LOW, 'Function URL requires IAM auth from CloudFront (OAC); buckets block public access and allow only CloudFront'],
@@ -154,6 +157,7 @@ detailList('Sign-in and session', [
   'Authorization code flow with PKCE (S256), state and nonce, held for 10 minutes in a __Host-tm_auth cookie',
   'ID token verified with Node crypto against Microsoft’s published keys: RS256 signature, issuer, tenant, audience, nonce, and expiry with 2 minutes of clock skew',
   'Session cookie __Host-tm_session: HMAC-SHA256 with a key derived from the client secret, 12 hours, HttpOnly, Secure, SameSite=Lax, host-only',
+  'The sign-in cookie is signed with a separate key and marked typ: login; a session must be typ: session and name a user',
 ]);
 detailList('AWS', [
   'The Lambda role can only run queries in its own Athena workgroup, read its Glue tables, read parameters under /traffic-monitor/ and use its own bucket prefixes',

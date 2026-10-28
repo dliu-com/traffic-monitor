@@ -1,6 +1,6 @@
 const zlib = require('zlib');
 const { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, processEvent, targetKey, decodeKey, normalizeV2, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
+const { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
 const FIELDS = require('../lambda/partitioner/fields.json');
 
 // A v2 line with every legacy field set to "<name>" plus the three added fields.
@@ -99,8 +99,28 @@ describe('log partitioner', () => {
     expect(lines[3].split('\t').slice(33)).toEqual(['-', '-', '-']);
   });
 
+  test('keeps only the visitor ID from the logged Cookie header', () => {
+    expect(redactCookie('__Host-blog_session=eyJ0.sig;%20dl_vid=abc123def456;%20other=1')).toBe('dl_vid=abc123def456');
+    expect(redactCookie('dl_vid=abc123def456')).toBe('dl_vid=abc123def456');
+    expect(redactCookie('__Host-tm_session=eyJ0.sig')).toBe('-');
+    expect(redactCookie('dl_vid=%E0%A4%A')).toBe('-');
+    expect(redactCookie('-')).toBe('-');
+    expect(redactCookie(undefined)).toBe('-');
+    const line = v2Line({ 'cs(Cookie)': 'session=secret;%20dl_vid=abc123def456' });
+    const row = normalizeV2(`${line}\n`).split('\n')[2].split('\t');
+    expect(row[OUTPUT_FIELDS.indexOf('cs(Cookie)')]).toBe('dl_vid=abc123def456');
+  });
+
+  test('redacts the Cookie column of an already filed log, by header', () => {
+    const text = '#Version: 1.0\n#Fields: date cs(Cookie) c-ip\n2026-10-09\tsession=secret;%20dl_vid=abc123def456\t203.0.113.9\n'
+      + '2026-10-09\tsession=secret\t203.0.113.9\n#Fields: cs(Cookie)\r\nsession=x\r\n';
+    expect(redactLogText(text)).toBe('#Version: 1.0\n#Fields: date cs(Cookie) c-ip\n2026-10-09\tdl_vid=abc123def456\t203.0.113.9\n'
+      + '2026-10-09\t-\t203.0.113.9\n#Fields: cs(Cookie)\r\n-\r\n');
+    expect(redactLogText(redactLogText(text))).toBe(redactLogText(text));
+  });
+
   test('uses the configured field order when a v2 file has no header', () => {
-    const line = v2Line({ 'c-country': 'GB', asn: '16509' });
+    const line = v2Line({ 'c-country': 'GB', asn: '16509', 'cs(Cookie)': 'dl_vid=abc123def456' });
     expect(normalizeV2(`${line}\n`).split('\n')[2]).toBe(line);
   });
 

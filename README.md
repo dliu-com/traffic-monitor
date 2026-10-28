@@ -99,7 +99,7 @@ const distribution = new cloudfront.Distribution(this, 'Distribution', {
     ],
   },
 });
-// Cookie logging for standard logging (v2); no legacy log bucket.
+// Cookie logging for standard logging (v2); no legacy log bucket. The partitioner keeps only dl_vid.
 (distribution.node.defaultChild as cloudfront.CfnDistribution)
   .addPropertyOverride('DistributionConfig.Logging', { IncludeCookies: true });
 ```
@@ -150,6 +150,9 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 - Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
   are deleted, since v2 already has those requests. The overlap hour was cleaned with
   `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.
+- CloudFront logs the whole Cookie header, including the sites' sign-in session cookies. The partitioner keeps only
+  `dl_vid=<id>` in `cs(Cookie)` before filing a log, so sessions are never stored. Logs filed before this change were
+  rewritten with `node scripts/redact-cookies.js --bucket <log bucket>` (safe to rerun; `--dry-run` only counts).
 - CloudFront logs arrive with a delay of a few minutes.
 - Logs are kept for 1 year; raw (unpartitioned) files for 7 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

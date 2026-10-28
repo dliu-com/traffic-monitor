@@ -42,6 +42,41 @@ function isV2(rawKey) {
   return rawKey.startsWith('raw-v2/');
 }
 
+// The sites log the Cookie header only for the dl_vid visitor ID, but CloudFront logs the whole header,
+// including the sites' sign-in session cookies. Keep just the visitor ID so sessions are never stored
+// beyond the unprocessed raw-v2/ file, which is deleted as soon as it is filed.
+const VISITOR_COOKIE = /dl_vid=([a-z0-9]{8,40})/;
+
+function redactCookie(value) {
+  if (!value || value === '-') return '-';
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    // Keep the raw value; the visitor ID never contains escapes.
+  }
+  const match = VISITOR_COOKIE.exec(decoded);
+  return match ? `dl_vid=${match[1]}` : '-';
+}
+
+// Applies redactCookie to the cs(Cookie) column of a log file, keeping every other byte as it is.
+// Columns are found by the #Fields header (falling back to the configured order).
+function redactLogText(text) {
+  let index = OUTPUT_FIELDS.indexOf('cs(Cookie)');
+  return text.split('\n').map((line) => {
+    if (line.startsWith('#Fields:')) {
+      index = line.replace(/\r$/, '').slice('#Fields:'.length).trim().split(/\s+/).indexOf('cs(Cookie)');
+      return line;
+    }
+    if (!line || line.startsWith('#') || index < 0) return line;
+    const values = line.split('\t');
+    if (values[index] === undefined) return line;
+    const cr = index === values.length - 1 && values[index].endsWith('\r');
+    values[index] = redactCookie(cr ? values[index].slice(0, -1) : values[index]) + (cr ? '\r' : '');
+    return values.join('\t');
+  }).join('\n');
+}
+
 function decodeKey(key) {
   return decodeURIComponent(key.replace(/\+/g, ' '));
 }
@@ -62,6 +97,7 @@ function normalizeV2(text) {
     const byName = new Map(names.map((name, i) => [name, values[i]]));
     rows.push(OUTPUT_FIELDS.map((name) => {
       const value = byName.get(name);
+      if (name === 'cs(Cookie)') return redactCookie(value);
       return value === undefined || value === '' ? '-' : value.replace(/[\t\n]/g, ' ');
     }).join('\t'));
   }
@@ -119,4 +155,4 @@ async function handler(event) {
   return processEvent(event, client());
 }
 
-module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };
+module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };

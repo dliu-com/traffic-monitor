@@ -270,7 +270,7 @@ describe('bots page', () => {
 
   test('/api/bot-records needs sign-in and forces bots only', async () => {
     const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
-    const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
+    const session = auth.issueSession({ user: 'user@example.com' }, config, NOW);
     const seen = [];
     const handler = createHandler({ loadConfig: async () => config, runQuery: async (sql) => { seen.push(sql); return []; }, now: () => NOW });
     Object.assign(process.env, env);
@@ -312,7 +312,7 @@ describe('page details', () => {
 
 describe('handler', () => {
   const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
-  const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
+  const session = auth.issueSession({ user: 'user@example.com' }, config, NOW);
   const queries = [];
   const handler = createHandler({
     loadConfig: async () => config,
@@ -548,7 +548,7 @@ describe('abuse-check', () => {
 
   test('/api/abuse needs sign-in and validates the part', async () => {
     const config = { tenantId: 't', clientId: 'c', clientSecret: 's', allowedDomain: 'example.com' };
-    const session = auth.sign({ user: 'user@example.com', exp: Math.floor(NOW / 1000) + 600 }, auth.sessionKey(config));
+    const session = auth.issueSession({ user: 'user@example.com' }, config, NOW);
     const s3 = { send: async (cmd) => (cmd.constructor.name === 'ListObjectsV2Command'
       ? { Contents: [{ Key: 'abuseipdb/runs/dt=2026-10-09/20261009T003000000Z.json' }, { Key: 'abuseipdb/runs/../x' }] }
       : { Body: { transformToString: async () => JSON.stringify(run('2026-10-09T00:30:00.000Z', 'schedule', '2026-10-06', '2026-10-08', { '2026-10-08': c({ left: 7 }) })) } }) };

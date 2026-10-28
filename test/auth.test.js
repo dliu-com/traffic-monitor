@@ -58,7 +58,7 @@ function beginLogin() {
   const login = auth.startLogin(config, SITE, NOW);
   const url = new URL(login.location);
   const transient = cookieValue(login.cookies, auth.AUTH_COOKIE);
-  const payload = auth.verifySigned(transient, auth.sessionKey(config), NOW);
+  const payload = auth.verifySigned(transient, auth.loginKey(config), NOW);
   return { url, transient, payload };
 }
 
@@ -79,6 +79,34 @@ describe('signed tokens', () => {
     expect(auth.verifySigned(token, key, NOW + 61000)).toBeNull();
     expect(auth.verifySigned(token, auth.sessionKey({ clientSecret: 'other' }), NOW)).toBeNull();
     expect(auth.verifySigned(undefined, key, NOW)).toBeNull();
+  });
+});
+
+describe('session forgery', () => {
+  const exp = NOW / 1000 + 600;
+  const session = (value) => auth.getSession({ cookies: [`${auth.SESSION_COOKIE}=${value}`] }, config, NOW);
+
+  test('the sign-in cookie from /auth/login is not a session', () => {
+    expect(session(beginLogin().transient)).toBeNull();
+  });
+
+  test('payloads without the session type or a user are rejected', () => {
+    const key = auth.sessionKey(config);
+    for (const payload of [{ user: 'me', exp }, { typ: 'session', exp }, { typ: 'session', user: '', exp }, { typ: 'login', user: 'me', exp }]) {
+      expect(session(auth.sign(payload, key))).toBeNull();
+    }
+    expect(session(auth.sign({ typ: 'session', user: 'me', exp }, auth.loginKey(config)))).toBeNull();
+    expect(session(auth.issueSession({ user: 'me' }, config, NOW)).user).toBe('me');
+  });
+
+  test('finishLogin rejects a session cookie used as the sign-in cookie', async () => {
+    const { payload } = beginLogin();
+    const forged = auth.sign({ ...payload, typ: 'session' }, auth.loginKey(config));
+    const result = await auth.finishLogin({
+      queryStringParameters: { code: 'c', state: payload.state },
+      cookies: [`${auth.AUTH_COOKIE}=${forged}`],
+    }, config, SITE, { fetchImpl: () => { throw new Error('should not fetch'); }, now: NOW });
+    expect(result.status).toBe(400);
   });
 });
 
