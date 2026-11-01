@@ -283,11 +283,40 @@ export function describeUA(ua) {
     const named = ua.match(/([A-Za-z0-9._-]*(?:bot|crawler|spider)[A-Za-z0-9._-]*)/i);
     return `Bot: ${named ? named[1] : ua.split(/[/ ]/)[0]}`;
   }
-  const browser = /Edg(e|A|iOS)?\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
-    : /Firefox\/|FxiOS/.test(ua) ? 'Firefox' : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : ua.split(/[/ ]/)[0];
+  const app = APPS.find(([pattern]) => pattern.test(ua));
+  const browser = app ? app[1] : /Edg(e|A|iOS)?\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
+    : /Firefox\/|FxiOS/.test(ua) ? 'Firefox' : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari'
+      : /iPhone|iPad/.test(ua) ? 'In-app browser' : ua.split(/[/ ]/)[0];
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
     : /Macintosh|Mac OS X/.test(ua) ? 'macOS' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : '';
-  return os ? `${browser} on ${os}` : browser;
+  return os ? `${browser} on ${os}${osVersion(ua, os)}` : browser;
+}
+
+// In-app browsers name their app in the user agent (MicroMessenger is WeChat's internal name).
+// WeCom also sends MicroMessenger, so it is checked first.
+const APPS = [
+  [/wxwork\//i, 'WeCom'], [/MicroMessenger\//, 'WeChat'], [/ QQ\//, 'QQ'], [/MQQBrowser\//, 'QQ Browser'], [/DingTalk\//, 'DingTalk'],
+  [/AlipayClient\//, 'Alipay'], [/Weibo/, 'Weibo'], [/aweme|BytedanceWebview|musical_ly|TikTok/i, 'TikTok/Douyin'], [/baiduboxapp\//, 'Baidu'],
+  [/UCBrowser\//, 'UC Browser'], [/XiaoHongShu|discover\/\d/, 'Xiaohongshu'], [/FBAN\/|FBAV\//, 'Facebook'], [/Instagram /, 'Instagram'],
+  [/LinkedInApp/, 'LinkedIn'], [/ Line\//, 'LINE'], [/WhatsApp\//, 'WhatsApp'], [/Snapchat\//, 'Snapchat'], [/GSA\//, 'Google app'],
+  [/YaBrowser\//, 'Yandex'], [/DuckDuckGo\//, 'DuckDuckGo'],
+];
+
+// The system version, where the user agent tells it. Phones never send their model, and some versions are frozen:
+// macOS always says 10.15.7, Windows 10 and 11 both say NT 10.0, and Android Chrome often says only "Android 10".
+function osVersion(ua, os) {
+  if (os === 'iPhone' || os === 'iPad') {
+    // Safari 26 and later freeze the OS version at 18.6; its own version matches the system.
+    const safari = !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua) && ua.match(/ Version\/(\d+(?:\.\d+)?)[^ ]* Mobile\/.* Safari\//);
+    const system = ua.match(/ OS (\d+)_(\d+)/);
+    const version = safari ? safari[1] : system ? `${system[1]}.${system[2]}` : '';
+    return version ? ` (${os === 'iPad' && parseFloat(version) >= 13 ? 'iPadOS' : 'iOS'} ${version})` : '';
+  }
+  if (os === 'Android') {
+    const version = ua.match(/Android (\d+(?:\.\d+)?)/);
+    return version ? ` ${version[1]}` : '';
+  }
+  return '';
 }
 
 // ---- period (kept in the URL so links and reloads keep it) ----
