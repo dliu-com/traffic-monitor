@@ -1,6 +1,7 @@
 import {
-  $, botToggle, botsNote, browserLabel, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime, ipLink, isBot, kpis,
-  pageLink, pagedTable, part, visitorLink, periodBar, periodText, series, setStatus, siteLink, siteName, siteUrl, start, state, widget,
+  $, botsNote, botToggle, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime,
+  ipLink, isBot, kpis, pagedTable, pageLink, part, periodBar, periodText, series, setStatus, siteLink, siteName,
+  siteUrl, start, state, uaColumns, visitorLink, widget,
 } from './dash.js';
 
 // One page of one site: who viewed it and from which IP addresses.
@@ -35,7 +36,7 @@ const visitors = pagedTable({
     { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
     { label: 'Last viewed', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
   ],
 });
 visitorCard.head.append(visitors.search);
@@ -57,7 +58,7 @@ const ips = pagedTable({
     { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
     { label: 'Last viewed', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
   ],
 });
 ipCard.head.append(ips.search);
@@ -80,7 +81,7 @@ const log = pagedTable({
     { label: 'Method', value: (r) => r.method },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
     { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
-    { label: 'Browser', value: (r) => browserLabel(r.ua, r.asn), title: (r) => r.ua, cls: 'muted' },
+    ...uaColumns('ua'),
   ],
 });
 logCard.head.append(log.search);

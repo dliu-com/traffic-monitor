@@ -1,6 +1,7 @@
 import {
-  $, botToggle, botsNote, browserLabel, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el, filters, fmt,
-  formatTime, ipLink, isBot, kpis, pageDetailsLink, pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state, updatedNote, widget,
+  $, botsNote, botToggle, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort,
+  el, filters, fmt, formatTime, ipLink, isBot, kpis, pageDetailsLink, pagedTable, pageLink, part, periodBar,
+  periodText, series, setStatus, siteName, start, state, uaColumns, updatedNote, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -74,7 +75,7 @@ const ips = pagedTable({
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
     { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
   ],
 });
@@ -100,7 +101,7 @@ const log = pagedTable({
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
     { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
-    { label: 'Browser', value: (r) => browserLabel(r.ua, r.asn), title: (r) => r.ua, cls: 'muted' },
+    ...uaColumns('ua'),
   ],
 });
 logCard.head.append(pagesOnly.node, log.search);

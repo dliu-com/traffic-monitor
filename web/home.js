@@ -1,7 +1,7 @@
 import {
-  $, botsNote, browserLabel, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort, el,
-  filters, fmt, formatTime, handleError, ipLink, isBot, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName,
-  sparkline, start, state, updatedNote, widget,
+  $, botsNote, bucketOf, buckets, card, chart, countriesTable, countryName, countryNote, countrySelect, countryShort,
+  el, filters, fmt, formatTime, handleError, ipLink, isBot, kpis, pagedTable, part, periodBar, periodText, series,
+  setStatus, siteLink, siteName, sparkline, start, state, uaColumns, updatedNote, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -32,7 +32,7 @@ const ips = pagedTable({
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
     { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
   ],
 });

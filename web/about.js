@@ -91,7 +91,7 @@ list([
   ['Country, city and network', 'the country, city and network (ASN) CloudFront places the IP in; the city is approximate, and where CloudFront gives none, DB-IP’s city is shown as “City (DB-IP)”'],
   ['Visitor', 'the dl_vid ID, or the IP address when there is none (bots and cookie-blocking browsers)'],
   ['Request', 'site, method, path, query string, status code and bytes sent'],
-  ['Browser', 'user agent and referrer, used to spot bots and external links'],
+  ['Browser and device', 'user agent and referrer, used to show the browser and device and to spot bots and external links'],
 ]);
 
 root.append(flow({
@@ -188,7 +188,7 @@ detailList('Components', [
 ]);
 detailList('Data and retention', [
   'Each log line has 36 fields; the dashboard uses time, IP, country, city, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
-  'The Browser column is read from the user agent: the browser or in-app browser (WeChat, QQ, Facebook…), the device type and the system version. Phones never send their model (an iPhone only says iPhone), and some versions are frozen: macOS always says 10.15.7 and Windows 10 and 11 look the same.',
+  'The Browser and Device columns are read from the user agent (hover for all of it). Browser is the browser or in-app browser (WeChat, QQ, Facebook…) and its version. Device is the kind of device (iPhone, iPad, phone, tablet, desktop or TV), the Android model when the user agent names one (in-app browsers and older browsers do; Chrome sends only “K”) and the system version. An iPhone never says which model it is, and some versions are frozen and left out: macOS always says 10.15.7, Windows 10 and 11 look the same, and Chrome on Android always says Android 10.',
   'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs), and CloudFront has no city for some IPs. For an IP with no CloudFront city on a day, the city comes from DB-IP’s database if DB-IP agrees on the country, shown as “Nanjing (DB-IP)”; DB-IP is less precise, and some IPs still have none.',
   'IP Geolocation by DB-IP (https://db-ip.com), licensed under CC BY 4.0, supplies the cities marked (DB-IP).',
   'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. A request is a bot if its user agent is missing or names a crawler or script, or if the bot check (every 6 hours) flagged its IP for that day: a cloud, hosting or VPN network, scanning for weak spots, reported on AbuseIPDB, or never loading a page’s scripts, styles or cookie. The rules are on the Bot detection page. CloudFront does not flag bots itself. Bots are left out of every widget unless Include bots is ticked; that choice is remembered in a cookie for a year. The IP and Visitor pages always show everything.',

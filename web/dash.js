@@ -1,5 +1,8 @@
 // Shared helpers for the dashboard pages (All sites, Site, IP).
 // Every value from the logs is attacker-controlled, so it is only ever set with textContent.
+import { describeBrowser, describeDevice } from './ua.js';
+
+export { describeBrowser, describeDevice };
 export const $ = (id) => document.getElementById(id);
 export const number = new Intl.NumberFormat();
 // public: not signed in, so the page shows the pre-computed public figures (stats/<range>.json) only.
@@ -17,7 +20,6 @@ const DEFAULT_RANGES = ['24h', '7d', '30d', '90d'];
 // The public figures are pre-computed once a day for these ranges only.
 const PUBLIC_RANGES = ['7d', '30d', '90d'];
 const MAX_CUSTOM_DAYS = 366;
-const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java\/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse/i;
 
 export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -273,50 +275,6 @@ export function formatTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-// "Chrome on macOS", "Safari on iPhone", "Bot: Googlebot"
-export function describeUA(ua) {
-  if (!ua) return '';
-  if (ua === '-') return 'No browser name';
-  if (BOT_UA.test(ua)) {
-    const named = ua.match(/([A-Za-z0-9._-]*(?:bot|crawler|spider)[A-Za-z0-9._-]*)/i);
-    return `Bot: ${named ? named[1] : ua.split(/[/ ]/)[0]}`;
-  }
-  const app = APPS.find(([pattern]) => pattern.test(ua));
-  const browser = app ? app[1] : /Edg(e|A|iOS)?\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
-    : /Firefox\/|FxiOS/.test(ua) ? 'Firefox' : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari'
-      : /iPhone|iPad/.test(ua) ? 'In-app browser' : ua.split(/[/ ]/)[0];
-  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
-    : /Macintosh|Mac OS X/.test(ua) ? 'macOS' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux/.test(ua) ? 'Linux' : '';
-  return os ? `${browser} on ${os}${osVersion(ua, os)}` : browser;
-}
-
-// In-app browsers name their app in the user agent (MicroMessenger is WeChat's internal name).
-// WeCom also sends MicroMessenger, so it is checked first.
-const APPS = [
-  [/wxwork\//i, 'WeCom'], [/MicroMessenger\//, 'WeChat'], [/ QQ\//, 'QQ'], [/MQQBrowser\//, 'QQ Browser'], [/DingTalk\//, 'DingTalk'],
-  [/AlipayClient\//, 'Alipay'], [/Weibo/, 'Weibo'], [/aweme|BytedanceWebview|musical_ly|TikTok/i, 'TikTok/Douyin'], [/baiduboxapp\//, 'Baidu'],
-  [/UCBrowser\//, 'UC Browser'], [/XiaoHongShu|discover\/\d/, 'Xiaohongshu'], [/FBAN\/|FBAV\//, 'Facebook'], [/Instagram /, 'Instagram'],
-  [/LinkedInApp/, 'LinkedIn'], [/ Line\//, 'LINE'], [/WhatsApp\//, 'WhatsApp'], [/Snapchat\//, 'Snapchat'], [/GSA\//, 'Google app'],
-  [/YaBrowser\//, 'Yandex'], [/DuckDuckGo\//, 'DuckDuckGo'],
-];
-
-// The system version, where the user agent tells it. Phones never send their model, and some versions are frozen:
-// macOS always says 10.15.7, Windows 10 and 11 both say NT 10.0, and Android Chrome often says only "Android 10".
-function osVersion(ua, os) {
-  if (os === 'iPhone' || os === 'iPad') {
-    // Safari 26 and later freeze the OS version at 18.6; its own version matches the system.
-    const safari = !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua) && ua.match(/ Version\/(\d+(?:\.\d+)?)[^ ]* Mobile\/.* Safari\//);
-    const system = ua.match(/ OS (\d+)_(\d+)/);
-    const version = safari ? safari[1] : system ? `${system[1]}.${system[2]}` : '';
-    return version ? ` (${os === 'iPad' && parseFloat(version) >= 13 ? 'iPadOS' : 'iOS'} ${version})` : '';
-  }
-  if (os === 'Android') {
-    const version = ua.match(/Android (\d+(?:\.\d+)?)/);
-    return version ? ` ${version[1]}` : '';
-  }
-  return '';
 }
 
 // ---- period (kept in the URL so links and reloads keep it) ----
@@ -894,8 +852,13 @@ export function periodText(filters) {
 export const isBot = (row) => row.is_bot === true || row.is_bot === 'true';
 // The cloud or hosting network an address belongs to (by ASN), if it is one.
 export const hostingName = (asn) => (asn != null && Object.hasOwn(state.hosting, String(asn)) ? state.hosting[String(asn)] : null);
-// "Chrome on Windows", plus the hosting network when the address is in one (why it counts as a bot).
+// "Chrome 131", plus the hosting network when the address is in one (why it counts as a bot).
 export function browserLabel(ua, asn) {
   const host = hostingName(asn);
-  return host ? `${describeUA(ua)} · ${host}` : describeUA(ua);
+  return host ? `${describeBrowser(ua)} · ${host}` : describeBrowser(ua);
 }
+// Browser and Device table columns, read from the user agent in `key` (full user agent on hover).
+export const uaColumns = (key, withHosting = true) => [
+  { label: 'Browser', value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'muted' },
+  { label: 'Device', value: (r) => describeDevice(r[key]), title: (r) => r[key], cls: 'muted' },
+];

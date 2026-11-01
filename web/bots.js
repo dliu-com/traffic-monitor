@@ -1,8 +1,9 @@
 // The Bots page (signed in only): what the requests judged to be bots did. Bot records are kept for the
 // last 3 days; the daily log merge then deletes them, so older periods only show what is left.
 import {
-  $, BOT_REASONS, botCheck, botReasonText, browserLabel, buckets, card, chart, countryName, countryShort, el, filters, fmt, formatTime,
-  ipLink, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteName, staticTable, start, state, widget,
+  $, BOT_REASONS, botCheck, botReasonText, buckets, card, chart, countryName, countryShort, el, filters, fmt,
+  formatTime, ipLink, kpis, pagedTable, part, periodBar, periodText, series, setStatus, siteName, start, state,
+  staticTable, uaColumns, widget,
 } from './dash.js';
 
 state.defaultRange = '3d';
@@ -51,7 +52,7 @@ const ips = pagedTable({
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
   ],
 });
 ipCard.head.append(ips.search);
@@ -89,7 +90,7 @@ const log = pagedTable({
     { label: 'Why', value: (r) => reasonLabel(r.bot_reason) },
     { label: 'Request', value: (r) => `${r.method} ${r.path}`, cls: 'wrap' },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
-    { label: 'Browser', value: (r) => browserLabel(r.ua, r.asn), title: (r) => r.ua, cls: 'muted' },
+    ...uaColumns('ua'),
   ],
 });
 logCard.head.append(log.search);

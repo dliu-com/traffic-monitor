@@ -1,6 +1,7 @@
 import {
-  $, VISITOR_PATTERN, botReasonText, browserLabel, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, hostingName, ipLink, isBot, kpis,
-  pageDetailsLink, pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
+  $, botReasonText, card, countryLabel, countryName, countryShort, describeBrowser, describeDevice, el, facts, fmt,
+  formatTime, hostingName, ipLink, isBot, kpis, pageDetailsLink, pagedTable, pageLink, part, period, periodBar,
+  periodText, setStatus, siteLink, siteName, start, staticTable, uaColumns, VISITOR_PATTERN, widget,
 } from './dash.js';
 
 // Everything one dl_vid visitor ID did, across every site and IP address.
@@ -44,7 +45,7 @@ const ips = pagedTable({
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Browser', value: (r) => browserLabel(r.last_ua, r.asn), title: (r) => r.last_ua, cls: 'muted' },
+    ...uaColumns('last_ua'),
   ],
 });
 ipsCard.head.append(ips.search);
@@ -84,7 +85,7 @@ const log = pagedTable({
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
     { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
-    { label: 'Browser', value: (r) => describeUA(r.ua), title: (r) => r.ua, cls: 'muted' },
+    ...uaColumns('ua', false),
   ],
 });
 logCard.head.append(log.search);
@@ -122,7 +123,8 @@ const loadSummary = widget(summaryBox, () => part('/api/visitor', 'summary', { v
       'Crawler user agents count at once; the other reasons come from the bot check every 6 hours'],
     ['First seen', seen ? formatTime(s.first_seen) : ''],
     ['Last seen', seen ? formatTime(s.last_seen) : ''],
-    ['Latest browser', describeUA(s.last_ua), s.last_ua],
+    ['Latest browser', describeBrowser(s.last_ua), s.last_ua],
+      ['Latest device', describeDevice(s.last_ua), s.last_ua],
     ['Different browsers', seen ? fmt(s.user_agents) : ''],
     ['Errors', seen ? fmt(s.errors) : ''],
   ]));
