@@ -1,6 +1,6 @@
 import {
   $, IP_PATTERN, botReasonText, browserLabel, card, countryLabel, countryName, countryShort, describeUA, el, facts, fmt, formatTime, hostingName, ipLink, isBot, kpis,
-  pageLink, pagedTable, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
+  pageLink, pagedTable, visitorLink, part, period, periodBar, periodText, setStatus, siteLink, siteName, start, staticTable, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -57,7 +57,7 @@ const cookies = pagedTable({
   placeholder: 'Search cookie ID, site…',
   empty: 'No dl_vid visitor ID was seen from this IP',
   columns: [
-    { label: 'Visitor ID', value: (r) => r.visitor_id, cls: 'nowrap' },
+    { label: 'Visitor ID', value: (r) => r.visitor_id, href: (r) => visitorLink(r.visitor_id), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
     { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },

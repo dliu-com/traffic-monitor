@@ -1,4 +1,4 @@
-const { BadRequest, base, botQueries, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters } = require('../lambda/dashboard/queries');
+const { BadRequest, base, botQueries, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, visitorQueries } = require('../lambda/dashboard/queries');
 const { createHandler } = require('../lambda/dashboard');
 const auth = require('../lambda/dashboard/auth');
 
@@ -165,6 +165,28 @@ describe('sql', () => {
       expect(() => listQuery(filters, { list: 'requests', q: bad }, env)).toThrow(BadRequest);
     }
     expect(() => listQuery(filters, { list: 'requests', q: '围棋 /path?a=1&b=2' }, env)).not.toThrow();
+  });
+
+  test('visitor queries and lists cover every site, include bots and validate the ID', () => {
+    const vid = 'abc123def456';
+    const queries = visitorQueries(filters, vid, env);
+    expect(Object.keys(queries)).toEqual(['summary', 'sites']);
+    for (const sql of Object.values(queries)) {
+      expect(sql).toContain(`visitor_id = '${vid}'`);
+      expect(sql).not.toContain("AND site = 'cyy'");
+      expect(sql).not.toContain('WHERE bot_reason IS NULL');
+    }
+    for (const list of ['visitor_ips', 'visitor_pages', 'requests']) {
+      const { sql } = listQuery(filters, { list, visitor: vid }, env);
+      expect(sql).toContain(`visitor_id = '${vid}'`);
+      expect(sql).not.toContain('WHERE bot_reason IS NULL');
+    }
+    expect(listQuery(filters, { list: 'visitor_pages', visitor: vid }, env).sql).toContain('is_page AND visitor_id');
+    for (const bad of [undefined, '', 'ABC12345', "abc12345' OR '1'='1", 'short', 'a'.repeat(41)]) {
+      expect(() => visitorQueries(filters, bad, env)).toThrow(BadRequest);
+      expect(() => listQuery(filters, { list: 'visitor_ips', visitor: bad }, env)).toThrow(BadRequest);
+    }
+    expect(() => listQuery(filters, { list: 'requests', visitor: '' }, env)).toThrow(BadRequest);
   });
 
   test('ip lists ignore the site filter and need a valid IP', () => {
@@ -445,6 +467,16 @@ describe('handler', () => {
     expect(queries).toHaveLength(3);
     expect(JSON.parse(response.body).filters.site).toBe('all');
     expect((await request('/api/ip', { ...signedIn, queryStringParameters: { ip: "x'" } })).statusCode).toBe(400);
+  });
+
+  test('visitor view runs its queries across all sites', async () => {
+    queries.length = 0;
+    const response = await request('/api/visitor', { ...signedIn, queryStringParameters: { visitor: 'abc123def456', site: 'cyy', range: '7d' } });
+    expect(response.statusCode).toBe(200);
+    expect(queries).toHaveLength(2);
+    expect(JSON.parse(response.body).filters.site).toBe('all');
+    expect((await request('/api/visitor', { ...signedIn, queryStringParameters: { visitor: "x'" } })).statusCode).toBe(400);
+    expect((await request('/api/visitor', { queryStringParameters: { visitor: 'abc123def456' } })).statusCode).toBe(401);
   });
 
   test('page view runs its queries for one site and path', async () => {

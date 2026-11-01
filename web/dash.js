@@ -8,6 +8,7 @@ export const state = { siteHosts: {}, hosting: {}, public: false, defaultRange: 
 export const siteName = (key) => state.siteHosts[key] || key;
 export const fmt = (value) => number.format(Number(value) || 0);
 export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;
+export const VISITOR_PATTERN = /^[a-z0-9]{8,40}$/;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RANGES = [['24h', '24 hours'], ['3d', '3 days'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']];
@@ -314,6 +315,7 @@ export function pageLink(path, params = {}) {
 }
 export const siteLink = (site) => pageLink('/site', { site });
 export const ipLink = (ip) => pageLink('/ip', { ip });
+export const visitorLink = (visitor) => pageLink('/visitor', { visitor });
 export const pageDetailsLink = (site, path) => pageLink('/page', { site, path });
 
 // The live address of a logged path on a site, or null if it cannot be one.

@@ -17,6 +17,7 @@ describe('dashboard-pages CloudFront function', () => {
     ['/security/', '/security.html'],
     ['/site', '/site.html'],
     ['/ip/', '/ip.html'],
+    ['/visitor', '/visitor.html'],
     ['/page', '/page.html'],
     ['/bots', '/bots.html'],
     ['/abuse-check', '/abuse-check.html'],

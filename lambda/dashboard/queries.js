@@ -251,6 +251,11 @@ function requireIp(ip) {
   return `ip = '${ip}'`;
 }
 
+function requireVisitor(id) {
+  if (!VISITOR_ID.test(id || '')) throw new BadRequest('Invalid visitor id');
+  return `visitor_id = '${id}'`;
+}
+
 // The path is free text, so besides the pattern check its quotes are doubled (the only escape in a
 // Trino string literal).
 function requirePath(value) {
@@ -298,16 +303,13 @@ GROUP BY 1`,
   },
   requests: (q) => {
     const conditions = [];
-    if (q.visitor) {
-      if (!VISITOR_ID.test(q.visitor)) throw new BadRequest('Invalid visitor id');
-      conditions.push(`visitor_id = '${q.visitor}'`);
-    }
+    if (q.visitor !== undefined) conditions.push(requireVisitor(q.visitor));
     if (q.ip) conditions.push(requireIp(q.ip));
     if (q.path !== undefined) conditions.push(requirePath(q.path));
     if (q.pages === 'only') conditions.push('is_page');
     return {
-      // The IP page shows everything an IP did, bots included.
-      allBots: Boolean(q.ip),
+      // The IP and Visitor pages show everything an IP or visitor did, bots included.
+      allBots: Boolean(q.ip || q.visitor),
       sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, result, is_bot, bot_reason, is_page
 FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       search: ['site', 'ip', 'country', 'city', 'method', 'path', 'status', 'referrer', 'ua'],
@@ -349,6 +351,27 @@ GROUP BY ip`,
       order: 'last_seen DESC, ip',
     };
   },
+  // The IP addresses one visitor ID was seen on.
+  visitor_ips: (q) => ({
+    allSites: true,
+    sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
+  array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY},
+  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
+FROM v WHERE ${requireVisitor(q.visitor)}
+GROUP BY ip`,
+    search: ['ip', 'sites', 'last_ua', 'country', 'city'],
+    order: 'last_seen DESC, ip',
+  }),
+  // The pages one visitor ID viewed, most recent first.
+  visitor_pages: (q) => ({
+    allSites: true,
+    sql: `SELECT site, path, count(*) AS views, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v WHERE is_page AND ${requireVisitor(q.visitor)}
+GROUP BY site, path`,
+    search: ['site', 'path'],
+    order: 'last_seen DESC, site, path',
+  }),
   // The user agents bots sent, busiest first (the Bots page).
   agents: () => ({
     sql: `SELECT ua, count(*) AS requests, count(DISTINCT ip) AS ips,
@@ -417,6 +440,28 @@ HAVING count(*) > 0`,
   };
 }
 
+// Summary of one dl_vid visitor ID across every site, bots included; its long lists come from listQuery.
+function visitorQueries(filters, id, env = process.env) {
+  const match = requireVisitor(id);
+  const cte = base({ ...filters, site: 'all', country: null, bots: 'include' }, env);
+  return {
+    summary: `${cte}
+SELECT count(*) AS requests, count_if(is_page) AS pageviews,
+  max_by(country, ts) AS country, count(DISTINCT country) AS countries, ${LAST_CITY}, max_by(asn, ts) AS asn,
+  count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
+  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
+  array_join(array_sort(array_agg(DISTINCT bot_reason) FILTER (WHERE bot_reason IS NOT NULL)), ',') AS bot_reasons,
+  count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
+FROM v WHERE ${match}`,
+    sites: `${cte}
+SELECT site, count(*) AS requests, count_if(is_page) AS pageviews,
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
+FROM v WHERE ${match}
+GROUP BY site ORDER BY max(ts) DESC`,
+  };
+}
+
 // The Bots page: what the bots did in the period (always bots only).
 function botQueries(filters, env = process.env) {
   const cte = base({ ...filters, bots: 'only' }, env);
@@ -456,4 +501,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BOT, CATCH_UP_DAYS, COMPLETE_DAYS, BadRequest, IP, PAGE_MAX, base, botQueries, isoDay, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime };
+module.exports = { BOT, CATCH_UP_DAYS, COMPLETE_DAYS, BadRequest, IP, PAGE_MAX, base, botQueries, isoDay, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime, visitorQueries };

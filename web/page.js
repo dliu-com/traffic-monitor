@@ -1,6 +1,6 @@
 import {
   $, botToggle, botsNote, browserLabel, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime, ipLink, isBot, kpis,
-  pageLink, pagedTable, part, periodBar, periodText, series, setStatus, siteLink, siteName, siteUrl, start, state, widget,
+  pageLink, pagedTable, part, visitorLink, periodBar, periodText, series, setStatus, siteLink, siteName, siteUrl, start, state, widget,
 } from './dash.js';
 
 // One page of one site: who viewed it and from which IP addresses.
@@ -27,7 +27,7 @@ const visitors = pagedTable({
   empty: 'No one viewed this page in this period',
   rowClass: (r) => (isBot(r) ? 'bot' : null),
   columns: [
-    { label: 'Visitor ID', value: (r) => r.visitor_id || 'No cookie', title: (r) => (r.visitor_id ? null : 'Counted by IP address: the browser never sent the dl_vid cookie back'), cls: 'nowrap' },
+    { label: 'Visitor ID', value: (r) => r.visitor_id || 'No cookie', href: (r) => (r.visitor_id ? visitorLink(r.visitor_id) : null), title: (r) => (r.visitor_id ? null : 'Counted by IP address: the browser never sent the dl_vid cookie back'), cls: 'nowrap' },
     { label: 'Last IP', value: (r) => r.last_ip, href: (r) => ipLink(r.last_ip), cls: 'nowrap' },
     { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
@@ -76,7 +76,7 @@ const log = pagedTable({
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
-    { label: 'Visitor ID', value: (r) => r.visitor_id || '', cls: 'nowrap muted' },
+    { label: 'Visitor ID', value: (r) => r.visitor_id || '', href: (r) => visitorLink(r.visitor_id), cls: 'nowrap muted' },
     { label: 'Method', value: (r) => r.method },
     { label: 'Status', value: (r) => r.status, cls: 'num' },
     { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },

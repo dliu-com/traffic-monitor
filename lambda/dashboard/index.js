@@ -6,7 +6,7 @@ const { runQuery } = require('./athena');
 const { loadHosting } = require('./hosting');
 const { STATUS_KEY, isRunning, readStatus } = require('./bots');
 const { readRuns, reputationQueries, summarize } = require('./abuse');
-const { BadRequest, PAGE_MAX, botQueries, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings } = require('./queries');
+const { BadRequest, PAGE_MAX, botQueries, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, visitorQueries } = require('./queries');
 
 const SECURITY_HEADERS = {
   'cache-control': 'no-store',
@@ -132,9 +132,11 @@ function createHandler(deps = {}) {
       if (path === '/api/me') return json(200, { user: session.user, name: session.name, sites: settings().siteHosts });
       // Network names for the Browser column; the browser keeps them for an hour (they change weekly).
       if (path === '/api/networks') return json(200, { networks: await hosting() }, undefined, { 'cache-control': 'private, max-age=3600' });
-      if (path === '/api/overview' || path === '/api/ip' || path === '/api/page' || path === '/api/bot-records') {
-        const filters = parseFilters(path === '/api/ip' ? { ...params, site: 'all' } : path === '/api/bot-records' ? { ...params, bots: 'only' } : params, clock());
+      if (path === '/api/overview' || path === '/api/ip' || path === '/api/visitor' || path === '/api/page' || path === '/api/bot-records') {
+        const everySite = path === '/api/ip' || path === '/api/visitor';
+        const filters = parseFilters(everySite ? { ...params, site: 'all' } : path === '/api/bot-records' ? { ...params, bots: 'only' } : params, clock());
         const queries = path === '/api/ip' ? ipQueries(filters, params.ip)
+          : path === '/api/visitor' ? visitorQueries(filters, params.visitor)
           : path === '/api/page' ? pageQueries(filters, params.path)
             : path === '/api/bot-records' ? botQueries(filters) : overviewQueries(filters);
         // part=<name> runs one query, so each dashboard widget can load and appear on its own.
