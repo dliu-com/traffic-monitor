@@ -336,7 +336,7 @@ describe('reads each log file once', () => {
     expect(t.lists.filter((prefix) => prefix.startsWith('logs/'))).toEqual(['logs/site=root/dt=', 'logs/site=cyy/dt=']);
     const state = JSON.parse(t.store.get('bot-state/dt=2026-10-09.json'));
     expect(state.files).toEqual(['logs/site=root/dt=2026-10-09/a.gz']);
-    expect(state.ips['192.0.2.3']).toEqual([1, 1, '3320', '2026-10-09T10:00:00Z', 1, 0]);
+    expect(state.ips['192.0.2.3']).toEqual([1, 1, '3320', '2026-10-09T10:00:00Z', 1, 0, 0, null]);
     expect(Object.keys(JSON.parse(t.store.get(bots.REPUTATION_CACHE_KEY)).ips).sort()).toEqual(['192.0.2.2', '192.0.2.4']);
 
     // New requests: .1 now loads a script (a person, looked up), .4 comes back (already looked up).
@@ -349,7 +349,7 @@ describe('reads each log file once', () => {
     expect(t.queries).toHaveLength(1);
     const updated = JSON.parse(t.store.get('bot-state/dt=2026-10-09.json'));
     expect(updated.files).toEqual(['logs/site=root/dt=2026-10-09/a.gz', 'logs/site=root/dt=2026-10-09/c.gz']);
-    expect(updated.ips['192.0.2.1']).toEqual([2, 2, '2856', '2026-10-09T16:00:00Z', 0, 1]);
+    expect(updated.ips['192.0.2.1']).toEqual([2, 2, '2856', '2026-10-09T16:00:00Z', 0, 1, 0, null]);
     expect(t.file('bots/dt=2026-10-09/bots.json')).toEqual([{ ip: '192.0.2.2', reason: 'headless' }, { ip: '192.0.2.3', reason: 'probe' }]);
 
     // Nothing new: no log file read, no lookup.
@@ -374,10 +374,17 @@ describe('reads each log file once', () => {
     const ips = {};
     const rows = parseLog(`#Fields: ${COLUMNS.join(' ')}\n${[
       line({ date: '2026-10-09', time: '01:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/%2Eenv', 'cs(User-Agent)': 'curl/8.0' }),
-      line({ date: '2026-10-09', time: '02:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'cs(Cookie)': 'dl_vid%3Dabcdef1234' }),
+      line({ date: '2026-10-09', time: '02:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'cs(Cookie)': 'dl_vid%3Dabcdef1234', 'c-country': 'GB' }),
+      line({ date: '2026-10-09', time: '03:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'viewer-response-log-data': 'abcdef1234.4c6f6e646f6e', 'c-country': 'GB' }),
+      line({ date: '2026-10-09', time: '04:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/', 'cs(User-Agent)': 'curl/8.0', 'viewer-response-log-data': 'abcdef1234', 'c-country': 'CN' }),
     ].join('\n')}\n`);
     state.addRows(ips, rows, new RegExp(bots.PROBE), new RegExp(bots.PAGE_FILE));
-    expect(ips['192.0.2.1']).toEqual([1, 0, null, null, 1, 0]);
-    expect(ips['192.0.2.2']).toEqual([1, 1, null, null, 0, 1]);
+    // The last two: CloudFront gave a city (the visitor function logged <id>.<hex city>), and the latest country.
+    expect(ips['192.0.2.1']).toEqual([2, 0, null, null, 1, 0, 0, 'CN']);
+    expect(ips['192.0.2.2']).toEqual([2, 2, null, null, 0, 1, 1, 'GB']);
+    expect(state.featureRows({ d: { day: '2026-10-09', ips } })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ip: '192.0.2.1', has_city: false, country: 'CN' }),
+      expect.objectContaining({ ip: '192.0.2.2', has_city: true, country: 'GB' }),
+    ]));
   });
 });

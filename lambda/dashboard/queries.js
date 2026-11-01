@@ -27,6 +27,8 @@ const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|head
 // the days the merge may not have moved yet, and the archive (a few month folders) for the rest.
 const COMPLETE_DAYS = 3;
 const CATCH_UP_DAYS = 4;
+// The first day with DB-IP cities (geo.js): logs before it have no country to check them against.
+const CITIES_FROM = '2026-10-09';
 
 class BadRequest extends Error {}
 
@@ -36,13 +38,14 @@ function settings(env = process.env) {
   const archiveTable = env.GLUE_ARCHIVE_TABLE || 'cloudfront_logs_archive';
   const botsTable = env.GLUE_BOTS_TABLE || 'bot_ips';
   const reputationTable = env.GLUE_REPUTATION_TABLE || 'ip_reputation';
-  if (![database, table, archiveTable, botsTable, reputationTable].every((name) => IDENTIFIER.test(name))) throw new Error('Invalid Glue identifiers');
+  const citiesTable = env.GLUE_CITIES_TABLE || 'ip_cities';
+  if (![database, table, archiveTable, botsTable, reputationTable, citiesTable].every((name) => IDENTIFIER.test(name))) throw new Error('Invalid Glue identifiers');
   const siteHosts = {};
   for (const entry of String(env.SITES || '').split(',')) {
     const [key, host] = entry.split('=').map((s) => s.trim());
     if (key) siteHosts[key] = host || key;
   }
-  return { database, table, archiveTable, botsTable, reputationTable, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
+  return { database, table, archiveTable, botsTable, reputationTable, citiesTable, sites: Object.keys(siteHosts), siteHosts, rootDomain: env.ROOT_DOMAIN || 'dliu.com' };
 }
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -133,12 +136,21 @@ function logSource(filters, settingsValue) {
   return { sql: parts.join('\n    UNION ALL\n    '), daily };
 }
 
-function base(filters, env = process.env) {
+// `cities: false` leaves out the DB-IP cities (public-stats.js has no use for cities).
+function base(filters, env = process.env, { cities = true } = {}) {
   const config = settings(env);
-  const { database, botsTable } = config;
+  const { database, botsTable, citiesTable } = config;
   const source = logSource(filters, config);
   // Bot verdicts only matter for days still in daily folders: archived days have no bots left.
   const botDays = source.daily || { from: filters.startDay, to: filters.startDay };
+  // DB-IP cities for IPs CloudFront gave no city, one row per day and IP (geo.js).
+  const cityFrom = filters.startDay > CITIES_FROM ? filters.startDay : CITIES_FROM;
+  const cityCte = cities ? `
+  ), c AS (
+    SELECT dt AS city_dt, ip AS city_ip, max(city) AS db_city
+    FROM "${database}"."${citiesTable}"
+    WHERE dt BETWEEN '${cityFrom}' AND '${filters.endDay}'${cityFrom <= filters.endDay ? '' : ' AND false'}
+    GROUP BY dt, ip` : '';
   const countryFilter = !filters.country ? ''
     : filters.country === 'unknown' ? `\n      AND coalesce(c_country, '-') = '-'` : `\n      AND c_country = '${filters.country}'`;
   const window = [];
@@ -149,7 +161,7 @@ function base(filters, env = process.env) {
     SELECT dt AS bot_dt, ip AS bot_ip, max(reason) AS flagged
     FROM "${database}"."${botsTable}"
     WHERE dt BETWEEN '${botDays.from}' AND '${botDays.to}'${source.daily ? '' : ' AND false'}
-    GROUP BY dt, ip
+    GROUP BY dt, ip${cityCte}
   ), l AS (
     ${source.sql}
   ), r AS (
@@ -169,11 +181,13 @@ function base(filters, env = process.env) {
       sc_bytes AS bytes,
       nullif(c_country, '-') AS country,
       CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn,
+      ${cities ? 'db_city' : 'CAST(NULL AS varchar) AS db_city'},
       flagged
-    FROM l LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip${countryFilter ? `\n    WHERE true${countryFilter}` : ''}
+    FROM l LEFT JOIN b ON bot_dt = dt AND bot_ip = c_ip${cities ? '\n      LEFT JOIN c ON city_dt = dt AND city_ip = c_ip' : ''}${countryFilter ? `\n    WHERE true${countryFilter}` : ''}
   ), w AS (
     SELECT *,
-      CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw END AS city,
+      CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw
+        WHEN regexp_like(db_city, '${CITY}') THEN concat(db_city, ' (DB-IP)') END AS city,
       coalesce(cookie_id, CASE WHEN logged_id IS NOT NULL
         AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id,
       CASE WHEN coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}') THEN 'agent' ELSE flagged END AS bot_reason
@@ -501,4 +515,4 @@ FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
   };
 }
 
-module.exports = { BOT, CATCH_UP_DAYS, COMPLETE_DAYS, BadRequest, IP, PAGE_MAX, base, botQueries, isoDay, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime, visitorQueries };
+module.exports = { BOT, CATCH_UP_DAYS, CITIES_FROM, COMPLETE_DAYS, BadRequest, IP, PAGE_MAX, base, botQueries, isoDay, ipQueries, layout, listQuery, overviewQueries, pageQueries, parseFilters, settings, sqlTime, visitorQueries };

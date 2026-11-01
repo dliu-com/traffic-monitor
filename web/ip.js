@@ -119,7 +119,7 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
       ['Country', s.country ? `${countryLabel(s.country)}${countries > 1 ? ` (${countries} countries in this period)` : ''}` : (seen ? 'Not recorded' : ''),
         s.country ? null : 'Country is recorded by CloudFront for requests logged after country logging started'],
       ['City', s.city || (seen ? 'Not recorded' : ''),
-        s.city ? 'Latest city CloudFront placed this IP in (approximate)' : 'City is recorded by CloudFront for requests logged after city logging started'],
+        s.city ? 'Latest city CloudFront placed this IP in (approximate); “(DB-IP)” means CloudFront gave none and it comes from DB-IP’s database' : 'Neither CloudFront nor DB-IP placed this IP in a city (or DB-IP placed it in another country)'],
       ['Network', s.asn ? `AS${s.asn}${hostingName(s.asn) ? ` · ${hostingName(s.asn)} (hosting network)` : ''}` : (seen ? 'Not recorded' : ''),
         'The autonomous system (ISP or hosting provider) the IP belongs to'],
       ['Counted as a bot', seen ? (botReasonText(s.bot_reasons) || 'No') : '',

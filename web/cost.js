@@ -13,7 +13,7 @@ function add(tag, text, className) {
 const num = (text) => ({ text, className: 'num' });
 
 root.append(stats([
-  ['≈ $0.23', 'per month for the whole monitor', 'budget'],
+  ['≈ $0.26', 'per month for the whole monitor', 'budget'],
   ['$0', 'per guest page load (pre-computed files)', 'shield'],
   ['≈ $0.005', 'per signed-in dashboard page load', 'athena'],
 ]));
@@ -23,15 +23,16 @@ add('p', 'What the monitor costs with nobody using the dashboard: recording ever
 root.append(table(['Part', 'How it is billed', 'Typical month'], [
   ['S3 requests', 'About 11,000 log files a month (about 350 a day); each is written, read, filed and deleted once ($0.005 per 1,000 writes)', num('≈ $0.11')],
   ['Public statistics', 'Three Athena queries a day, at 02:00 UTC, write the 7, 30 and 90-day totals guests see', num('≈ $0.08')],
-  ['Bot check Lambda', 'Every 6 hours, plus Check bots now; each run reads only the log files no earlier run has read, with no Athena query', num('≈ $0.02')],
+  ['Bot check Lambda', 'Every 6 hours, plus Check bots now; each run reads only the log files no earlier run has read, with no Athena query; 1 GB of memory to hold the city database', num('≈ $0.04')],
   ['Daily log merge', 'At 01:30 UTC merges each site\'s day into one file in a folder per month and deletes bots\' requests', num('≈ $0.01')],
   ['S3 storage, CloudWatch logs, weekly hosting list', 'Gzipped logs of about 25 MB a month, kept for one year; Lambda logs kept one month', num('≈ $0.01')],
+  ['DB-IP city database', 'Downloaded on the 2nd of each month (about 130 MB kept in S3), and read by the bot check when an IP has no CloudFront city', num('≈ $0.01')],
   ['CloudFront log delivery (standard logging v2)', '$0.25 per GB of log lines delivered to S3; a few MB a month at this traffic', num('< $0.01')],
   ['Visitor ID function', '$0.10 per million site requests', num('< $0.01')],
   ['Partitioner Lambda', 'One short call per log file', num('$0 (free tier)')],
   ['AbuseIPDB', 'Free plan, up to 1,000 lookups a day', num('$0')],
   ['Dashboard Lambda, CloudFront, Glue, SSM', 'Per request, or free at this size', num('$0')],
-  ['Total', 'Before anyone signs in', num('≈ $0.23')],
+  ['Total', 'Before anyone signs in', num('≈ $0.26')],
 ]));
 
 add('h2', 'Per page load');
@@ -65,7 +66,7 @@ root.append(flow({
   ],
 }));
 
-add('p', 'Prices are for eu-west-1 (Ireland) and us-east-1 log delivery in October 2026. File counts were measured on the live log bucket. Without dashboard use the monitor costs about $2.80 a year. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, $0.25 per extra GB of logs and $0.10 per million requests.', 'dg-note');
+add('p', 'Prices are for eu-west-1 (Ireland) and us-east-1 log delivery in October 2026. File counts were measured on the live log bucket. Without dashboard use the monitor costs about $3.10 a year. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, $0.25 per extra GB of logs and $0.10 per million requests.', 'dg-note');
 
 const footer = document.createElement('footer');
 footer.textContent = 'Source: dliu-com/traffic-monitor (lib/traffic-monitor-stack.ts, lambda/dashboard/compact.js).';

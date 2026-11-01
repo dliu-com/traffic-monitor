@@ -1,7 +1,7 @@
 AWS_REGION ?= eu-west-1
 STACK_NAME ?= TrafficMonitor
 
-.PHONY: install test synth diff deploy update-hosting classify-bots public-stats compact-logs set-secrets set-abuseipdb-key outputs
+.PHONY: install test synth diff deploy update-hosting update-cities classify-bots public-stats compact-logs set-secrets set-abuseipdb-key outputs
 
 install:
 	npm ci
@@ -18,6 +18,7 @@ diff:
 deploy: test
 	AWS_REGION=$(AWS_REGION) npm run deploy
 	@$(MAKE) --no-print-directory update-hosting
+	@$(MAKE) --no-print-directory update-cities
 	@$(MAKE) --no-print-directory classify-bots
 	@$(MAKE) --no-print-directory public-stats
 
@@ -27,6 +28,13 @@ update-hosting:
 		--query "Stacks[0].Outputs[?OutputKey=='HostingListFunctionName'].OutputValue" --output text) && \
 	aws lambda invoke --region $(AWS_REGION) --function-name $$fn --cli-read-timeout 90 /dev/stdout --query FunctionError --output text \
 		|| echo "Hosting list update failed; the dashboard keeps the last copy."
+
+# Download this month's DB-IP city database now if the saved copy is older (it also runs monthly).
+update-cities:
+	@fn=$$(aws cloudformation describe-stacks --region $(AWS_REGION) --stack-name $(STACK_NAME) \
+		--query "Stacks[0].Outputs[?OutputKey=='CityDatabaseFunctionName'].OutputValue" --output text) && \
+	aws lambda invoke --region $(AWS_REGION) --function-name $$fn --cli-read-timeout 600 /dev/stdout --query FunctionError --output text \
+		|| echo "City database update failed; the bot check keeps using the last copy."
 
 # Judge bots now for today and the DAYS days before (default 3, at most 7; it also runs every 6 hours).
 # Runs in the background; the dashboard shows when it finishes.

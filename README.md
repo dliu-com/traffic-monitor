@@ -36,7 +36,7 @@ site CloudFront ──v2 logs──▶ S3 raw-v2/<site>/YYYY/MM/DD/ ──▶ pa
                                                               log merge λ (01:30 UTC) ──▶ S3 archive/month=/<site>_<day>.gz ◀── Athena
 ```
 
-Cost at low traffic: about $0.23/month without dashboard use (S3 requests for ~350 log files a day, the daily public
+Cost at low traffic: about $0.26/month without dashboard use (S3 requests for ~350 log files a day, the daily public
 stats, bot check and log merge); guests read pre-computed files for $0, and a signed-in dashboard page load costs about
 $0.005 (mostly S3 lists and reads by Athena). See `/cost`.
 
@@ -148,6 +148,13 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
   have none. City comes from CloudFront too, from about 13:30 UTC on 12 Oct 2026, and only on requests the visitor
   function runs on (not `/api/*` behaviors, nor link.dliu.com, whose viewer-request function answers every request).
   Queries keep a city only if it decodes to letters, digits, spaces and `.'’(),-` (at most 60 characters).
+- City fill-in (`lambda/dashboard/geo.js`): the `CityDatabaseUpdater` Lambda downloads [DB-IP](https://db-ip.com)'s free
+  IP to City Lite database (CC BY 4.0, about 60 MB gzipped, 130 MB unpacked) on the 2nd–4th of each month (and after
+  `make deploy`; run it with `make update-cities`), checks it and saves it to `geodb/` in the log bucket. Each bot check
+  looks up, in memory, the IPs CloudFront gave no city that day and keeps DB-IP's city only if DB-IP agrees on the
+  country; results go to `cities/dt=<day>/cities.json` (Glue table `ip_cities`, kept like the logs). The dashboard
+  shows them as `Nanjing (DB-IP)`. The `.mmdb` reader is built in, so the Lambdas still have no npm dependencies.
+  IP Geolocation by DB-IP, credited on the About page.
 - Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
   are deleted, since v2 already has those requests. The overlap hour was cleaned with
   `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.

@@ -5,6 +5,7 @@
 // the rules need. Each run lists the day's log files (logs/site=<site>/dt=<day>/), reads only the ones not
 // read before, adds them to the counts and saves the state; the verdicts are then worked out again from the
 // counts. A run that fails before saving reads those files again next time, so nothing is missed.
+// The state also notes, per IP, whether CloudFront gave a city and its country, for the city fill-in (geo.js).
 // bot-state/reputation.json caches the latest AbuseIPDB result per IP (REPUTATION_DAYS), so a run needs no
 // Athena query; the first run builds it from the ip_reputation table.
 
@@ -23,22 +24,31 @@ const PATH = col('cs-uri-stem');
 const UA = col('cs(User-Agent)');
 const COOKIE = col('cs(Cookie)');
 const ASN = col('asn');
+const COUNTRY = col('c-country');
+const VID_LOG = col('viewer-response-log-data');
 const VISITOR_COOKIE = /dl_vid=[a-z0-9]{8,40}/;
 const ASN_VALUE = /^[0-9]{1,10}$/;
+const COUNTRY_VALUE = /^[A-Z]{2}$/;
+// The visitor function logs <id>.<hex city> when CloudFront gave a city.
+const LOGGED_CITY = /^[a-z0-9]{8,40}\.(?:[0-9a-f]{2}){1,240}$/;
+const VERSION = 2;
 
-// Per IP: [requests, browser requests, latest ASN, time of that ASN, asked for a scanner path, loaded a page].
+// Per IP: [requests, browser requests, latest ASN, time of that ASN, asked for a scanner path, loaded a page,
+// CloudFront gave a city, latest country] (the last two for geo.js).
 const REQUESTS = 0;
 const BROWSER = 1;
 const LAST_ASN = 2;
 const ASN_TIME = 3;
 const PROBED = 4;
 const LOADS_PAGE = 5;
+const HAS_CITY = 6;
+const LAST_COUNTRY = 7;
 
 // Adds one log file's rows to a day's counts. The same tests as the dashboard and the old Athena query.
 function addRows(ips, rows, probe, pageFile) {
   for (const row of rows) {
     const ip = row[IP];
-    const entry = ips[ip] || (ips[ip] = [0, 0, null, null, 0, 0]);
+    const entry = ips[ip] || (ips[ip] = [0, 0, null, null, 0, 0, 0, null]);
     entry[REQUESTS]++;
     if (!isAgent(row[UA])) entry[BROWSER]++;
     const asn = row[ASN];
@@ -51,6 +61,8 @@ function addRows(ips, rows, probe, pageFile) {
     }
     const path = urlDecode(row[PATH]).toLowerCase();
     if (!entry[PROBED] && probe.test(path)) entry[PROBED] = 1;
+    if (!entry[HAS_CITY] && LOGGED_CITY.test(row[VID_LOG] || '')) entry[HAS_CITY] = 1;
+    if (COUNTRY_VALUE.test(row[COUNTRY] || '')) entry[LAST_COUNTRY] = row[COUNTRY];
     if (!entry[LOADS_PAGE] && (pageFile.test(path) || VISITOR_COOKIE.test(urlDecode(row[COOKIE])))) entry[LOADS_PAGE] = 1;
   }
 }
@@ -97,7 +109,8 @@ async function refresh(client, bucket, days, sites, { probe, pageFile }) {
   let read = 0;
   for (const day of days) {
     const saved = await readJson(client, bucket, stateKey(day));
-    const state = saved && saved.version === 1 && saved.day === day ? saved : { version: 1, day, files: [], ips: {} };
+    // A state from before the current layout is rebuilt by reading the day's files again.
+    const state = saved && saved.version === VERSION && saved.day === day ? saved : { version: VERSION, day, files: [], ips: {} };
     const known = new Set(state.files);
     const fresh = byDay.get(day).filter((key) => !known.has(key));
     const parsed = new Map();
@@ -125,7 +138,7 @@ function featureRows(states) {
     for (const [ip, e] of Object.entries(state.ips)) {
       rows.push({
         dt: state.day, ip, requests: e[REQUESTS], browser_requests: e[BROWSER], asn: e[LAST_ASN],
-        probe: e[PROBED] === 1, loads_page: e[LOADS_PAGE] === 1,
+        probe: e[PROBED] === 1, loads_page: e[LOADS_PAGE] === 1, has_city: e[HAS_CITY] === 1, country: e[LAST_COUNTRY] ?? null,
       });
     }
   }

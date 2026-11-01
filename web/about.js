@@ -88,7 +88,7 @@ section('What is recorded');
 list([
   ['Time', 'when CloudFront received the request (UTC, shown in your time zone)'],
   ['IP address', 'the address the request came from'],
-  ['Country, city and network', 'the country, city and network (ASN) CloudFront places the IP in; the city is approximate and sometimes missing'],
+  ['Country, city and network', 'the country, city and network (ASN) CloudFront places the IP in; the city is approximate, and where CloudFront gives none, DB-IP’s city is shown as “City (DB-IP)”'],
   ['Visitor', 'the dl_vid ID, or the IP address when there is none (bots and cookie-blocking browsers)'],
   ['Request', 'site, method, path, query string, status code and bytes sent'],
   ['Browser', 'user agent and referrer, used to spot bots and external links'],
@@ -120,7 +120,7 @@ root.append(flow({
   note: 'The client secret lives in SSM Parameter Store, not in the code. The sign-in cookie that carries state, nonce and PKCE expires after 10 minutes.',
 }));
 
-section('Running costs', 'Nothing runs while nobody is visiting, so there is no fixed server fee. Every part is billed per use: about $0.23 a month for recording all sites and the daily jobs, nothing for guest visits (they read pre-computed files), and about $0.005 per signed-in dashboard page load. The Running costs page has the full breakdown.');
+section('Running costs', 'Nothing runs while nobody is visiting, so there is no fixed server fee. Every part is billed per use: about $0.26 a month for recording all sites and the daily jobs, nothing for guest visits (they read pre-computed files), and about $0.005 per signed-in dashboard page load. The Running costs page has the full breakdown.');
 
 section('Security', 'The monitor stores data that visitors control, such as their browser name and the address they typed, so every logged value is treated as hostile. It is shown on the dashboard as plain text and never placed into SQL. The site was threat-modelled and penetration-tested on 9 October 2026; the four issues found were fixed the same day.');
 
@@ -157,7 +157,7 @@ root.append(tiers({
 section('Read more');
 root.append(cards([
   ['/detect-bot', 'bot', 'Bot detection', 'The rules that tell bots from people, and the check every 6 hours', '5 rules · AbuseIPDB · every 6 hours'],
-  ['/cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.23 a month · guests free'],
+  ['/cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.26 a month · guests free'],
   ['/security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
   ['https://github.com/dliu-com/traffic-monitor', 'code', 'Source code', 'The CDK stack, Lambdas, functions and these pages', 'Public on GitHub'],
 ]));
@@ -183,12 +183,14 @@ detailList('Components', [
   'Glue tables cloudfront_logs (partition projection over site and day) and cloudfront_logs_archive (over month), so no crawler or partition updates are needed.',
   'Athena workgroup traffic with an enforced 1 GB scan cutoff and 5-minute result reuse.',
   'Bot check: a Node.js Lambda run every 6 hours by EventBridge, or from the dashboard, reads only log files no earlier run has read (keeping running counts in bot-state/) and writes per-day bot verdicts and AbuseIPDB results to the log bucket, read through two more Glue tables.',
+  'City fill-in: on the 2nd of each month a Lambda downloads DB-IP’s free IP to City Lite database (about 60 MB, 130 MB unpacked) to geodb/ in the log bucket. The bot check then looks up, in memory, each IP CloudFront gave no city that day and keeps DB-IP’s city only when DB-IP places the IP in the same country as CloudFront. Results go to cities/dt=<day>/ (Glue table ip_cities). No IP is sent anywhere.',
   'Dashboard: static HTML, CSS and JavaScript in a private S3 bucket behind CloudFront; /api/* and /auth/* go to a Node.js Lambda function URL secured with IAM and origin access control.',
 ]);
 detailList('Data and retention', [
   'Each log line has 36 fields; the dashboard uses time, IP, country, city, network (ASN), site, method, path, query, status, bytes, user agent, referrer and the dl_vid ID.',
   'The Browser column is read from the user agent: the browser or in-app browser (WeChat, QQ, Facebook…), the device type and the system version. Phones never send their model (an iPhone only says iPhone), and some versions are frozen: macOS always says 10.15.7 and Windows 10 and 11 look the same.',
-  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs); others have no city.',
+  'Country comes from CloudFront’s own IP lookup, so there is no geolocation database to update. Requests logged before about 21:00 UTC on 9 October 2026, when the sites switched to this log format, have no country and show as Unknown. Cities are recorded from about 13:30 UTC on 12 October 2026, only for requests the visitor function runs on (not /api calls, nor link.dliu.com, whose redirects are answered before it runs), and CloudFront has no city for some IPs. For an IP with no CloudFront city on a day, the city comes from DB-IP’s database if DB-IP agrees on the country, shown as “Nanjing (DB-IP)”; DB-IP is less precise, and some IPs still have none.',
+  'IP Geolocation by DB-IP (https://db-ip.com), licensed under CC BY 4.0, supplies the cities marked (DB-IP).',
   'Visitors are counted by the dl_vid cookie the browser sent. A request without one, such as a first visit, counts under the ID the function logged, provided that ID came back as a cookie in the same period; otherwise it counts by IP. A request is a bot if its user agent is missing or names a crawler or script, or if the bot check (every 6 hours) flagged its IP for that day: a cloud, hosting or VPN network, scanning for weak spots, reported on AbuseIPDB, or never loading a page’s scripts, styles or cookie. The rules are on the Bot detection page. CloudFront does not flag bots itself. Bots are left out of every widget unless Include bots is ticked; that choice is remembered in a cookie for a year. The IP and Visitor pages always show everything.',
   'Raw files are deleted after 7 days, sorted logs after 365 days and Athena results after 7 days.',
   'Sites are listed in config/sites.json; adding a site there adds its partition and its card on the dashboard.',

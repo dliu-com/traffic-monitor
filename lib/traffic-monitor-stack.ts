@@ -34,6 +34,7 @@ export const ATHENA_WORKGROUP = 'traffic';
 const HOSTING_KEY = 'hosting/asns.json';
 export const GLUE_BOTS_TABLE = 'bot_ips';
 export const GLUE_REPUTATION_TABLE = 'ip_reputation';
+export const GLUE_CITIES_TABLE = 'ip_cities';
 export const PARAMETER_PREFIX = '/traffic-monitor';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
 export const GEO_POLICY_NAME = 'dliu-traffic-geo';
@@ -97,6 +98,7 @@ export class TrafficMonitorStack extends Stack {
         { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(7) },
         { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
+        { id: 'expire-db-ip-cities', prefix: 'cities/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-runs', prefix: 'abuseipdb/runs/', expiration: Duration.days(120) },
         // The bot check's per-day counts are needed for 4 days (bots.js); bot-state/reputation.json is kept.
         { id: 'expire-bot-check-state', prefix: 'bot-state/dt=', expiration: Duration.days(7) },
@@ -286,10 +288,11 @@ export class TrafficMonitorStack extends Stack {
       ['ip', 'string'], ['score', 'int'], ['reports', 'int'], ['usage_type', 'string'], ['isp', 'string'],
       ['domain', 'string'], ['is_tor', 'boolean'], ['checked', 'string'],
     ]);
+    jsonTable('IpCitiesTable', GLUE_CITIES_TABLE, 'cities', [['ip', 'string'], ['city', 'string']]);
     const glueResources = [
       this.formatArn({ service: 'glue', resource: 'catalog' }),
       this.formatArn({ service: 'glue', resource: 'database', resourceName: GLUE_DATABASE }),
-      ...[GLUE_TABLE, GLUE_ARCHIVE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE].map((name) =>
+      ...[GLUE_TABLE, GLUE_ARCHIVE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE, GLUE_CITIES_TABLE].map((name) =>
         this.formatArn({ service: 'glue', resource: 'table', resourceName: `${GLUE_DATABASE}/${name}` })),
     ];
 
@@ -326,6 +329,7 @@ export class TrafficMonitorStack extends Stack {
         GLUE_ARCHIVE_TABLE,
         GLUE_BOTS_TABLE,
         GLUE_REPUTATION_TABLE,
+        GLUE_CITIES_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
         HOSTING_BUCKET: logBucket.bucketName,
@@ -362,6 +366,7 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantRead(dashboardHandler, HOSTING_KEY);
     logBucket.grantRead(dashboardHandler, 'bots/*');
     logBucket.grantRead(dashboardHandler, 'reputation/*');
+    logBucket.grantRead(dashboardHandler, 'cities/*');
     resultsBucket.grantReadWrite(dashboardHandler);
 
     // Weekly refresh of the cloud/hosting network list (ASNs counted as bots) from public lists.
@@ -385,6 +390,29 @@ export class TrafficMonitorStack extends Stack {
       targets: [new eventTargets.LambdaFunction(hostingUpdater, { retryAttempts: 2 })],
     });
 
+    // Monthly download of DB-IP's free city database (CC BY 4.0), for cities CloudFront did not give (geo.js).
+    // DB-IP publishes each month's on the 1st; the job keeps last month's until the new one is out.
+    const geoUpdater = new lambda.Function(this, 'CityDatabaseUpdater', {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'geo.update',
+      code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
+      timeout: Duration.minutes(10),
+      memorySize: 1024,
+      description: 'Downloads the DB-IP City Lite database each month for the city fill-in',
+      environment: { GEO_BUCKET: logBucket.bucketName },
+      logGroup: new logs.LogGroup(this, 'CityDatabaseUpdaterLogs', {
+        retention: logs.RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    logBucket.grantRead(geoUpdater, 'geodb/*');
+    logBucket.grantPut(geoUpdater, 'geodb/*');
+    new events.Rule(this, 'CityDatabaseMonthly', {
+      description: 'Download this month\'s DB-IP city database (retried on the following days if not out yet)',
+      schedule: events.Schedule.cron({ day: '2-4', hour: '3', minute: '0' }),
+      targets: [new eventTargets.LambdaFunction(geoUpdater, { retryAttempts: 2 })],
+    });
+
     // Bot classifier, every 6 hours: per-day bot verdicts for each IP, with AbuseIPDB lookups (bots.js). It reads
     // each log file once, keeping running counts in bot-state/ (bot-state.js).
     const botClassifier = new lambda.Function(this, 'BotClassifier', {
@@ -392,7 +420,8 @@ export class TrafficMonitorStack extends Stack {
       handler: 'bots.update',
       code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
       timeout: Duration.minutes(15),
-      memorySize: 512,
+      // Room for the DB-IP city database (about 130 MB), read into memory for the city fill-in (geo.js).
+      memorySize: 1024,
       description: 'Judges which IPs were bots each day (hosting network, scanner, AbuseIPDB, headless)',
       environment: {
         GLUE_DATABASE,
@@ -400,10 +429,12 @@ export class TrafficMonitorStack extends Stack {
         GLUE_ARCHIVE_TABLE,
         GLUE_BOTS_TABLE,
         GLUE_REPUTATION_TABLE,
+        GLUE_CITIES_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
         HOSTING_BUCKET: logBucket.bucketName,
         BOTS_BUCKET: logBucket.bucketName,
+        GEO_BUCKET: logBucket.bucketName,
         SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
       },
       logGroup: new logs.LogGroup(this, 'BotClassifierLogs', {
@@ -428,6 +459,8 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantReadWrite(botClassifier, 'reputation/*');
     logBucket.grantReadWrite(botClassifier, 'abuseipdb/runs/*');
     logBucket.grantReadWrite(botClassifier, 'bot-state/*');
+    logBucket.grantRead(botClassifier, 'geodb/*');
+    logBucket.grantReadWrite(botClassifier, 'cities/*');
     resultsBucket.grantReadWrite(botClassifier);
     new events.Rule(this, 'BotClassifierSchedule', {
       description: 'Judge today\'s and the last 3 days\' IPs as bots or people, every 6 hours',
@@ -640,6 +673,7 @@ export class TrafficMonitorStack extends Stack {
     new CfnOutput(this, 'AthenaWorkGroup', { value: workGroup.name });
     new CfnOutput(this, 'DashboardFunctionName', { value: dashboardHandler.functionName });
     new CfnOutput(this, 'HostingListFunctionName', { value: hostingUpdater.functionName });
+    new CfnOutput(this, 'CityDatabaseFunctionName', { value: geoUpdater.functionName });
     new CfnOutput(this, 'BotClassifierFunctionName', { value: botClassifier.functionName });
     new CfnOutput(this, 'PublicStatsFunctionName', { value: publicStats.functionName });
     new CfnOutput(this, 'LogMergeFunctionName', { value: logMerge.functionName });

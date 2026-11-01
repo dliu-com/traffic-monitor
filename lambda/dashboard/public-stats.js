@@ -44,7 +44,7 @@ function metrics(humans) {
 function statsQuery(window, env = process.env) {
   const filters = { site: 'all', country: null, bots: 'include', ...window };
   const unit = filters.unit === 'hour' ? 'hour' : 'day';
-  return `${base(filters, env)}, g AS (
+  return `${base(filters, env, { cities: false })}, g AS (
     SELECT site, coalesce(country, 'unknown') AS cc, ${TS(`date_trunc('${unit}', ts)`)} AS bucket, ts, visitor, ip, status, is_page, is_bot
     FROM v
   )

@@ -23,6 +23,7 @@
 // Results are saved under reputation/dt=<day>/ (Glue table ip_reputation, kept 180 days), and each run's
 // counts under abuseipdb/runs/dt=<day>/ for the /abuse-check page (kept 120 days). The key lives in SSM;
 // without it that step is skipped.
+// The same run fills in cities for IPs CloudFront gave no city, from DB-IP's database (geo.js).
 // Nothing about a day changes after the last run on its 3rd day after, so the log merge (compact.js) can then drop its bots.
 
 const net = require('net');
@@ -30,6 +31,7 @@ const { runQuery } = require('./athena');
 const { EXCLUDED, cleanName, loadHosting, validAsn } = require('./hosting');
 const { isoDay, settings } = require('./queries');
 const state = require('./bot-state');
+const geo = require('./geo');
 const { listKeys, readObject } = require('./logfile');
 
 const API = 'https://api.abuseipdb.com/api/v2/check';
@@ -388,9 +390,17 @@ async function classify(days, now, env, bucket, client, deps) {
     await put(client, bucket, `${BOTS_PREFIX}dt=${day}/bots.json`, bots);
     for (const bot of bots) counts[bot.reason]++;
   }
+  // Cities for IPs CloudFront gave no city (geo.js). A failure here does not stop the bot check.
+  let cities;
+  try {
+    cities = await (deps.fillCities || geo.fillCities)(rows, client, bucket, deps);
+  } catch (error) {
+    console.warn(JSON.stringify({ message: 'City fill-in failed', error: error.message }));
+    cities = { error: 'City fill-in failed; see the BotClassifier logs.' };
+  }
   // Last, so a run that fails earlier reads its new log files again next time.
   await features.save();
-  const summary = { from: days[days.length - 1], to: days[0], days: byDay.size, ips: rows.length, files_read: features.read, bots: counts, abuseipdb: abuse };
+  const summary = { from: days[days.length - 1], to: days[0], days: byDay.size, ips: rows.length, files_read: features.read, bots: counts, abuseipdb: abuse, cities };
   console.log(JSON.stringify({ message: 'Bot classification finished', ...summary }));
   return summary;
 }

@@ -116,7 +116,7 @@ const loadSummary = widget(summaryBox, () => part('/api/visitor', 'summary', { v
   aboutCard.body.replaceChildren(facts([
     ['Latest IP', s.last_ip || ''],
     ['Country', s.country ? `${countryLabel(s.country)}${countries > 1 ? ` (${countries} countries in this period)` : ''}` : (seen ? 'Not recorded' : '')],
-    ['City', s.city || (seen ? 'Not recorded' : ''), s.city ? 'Latest city CloudFront placed this visitor in (approximate)' : null],
+    ['City', s.city || (seen ? 'Not recorded' : ''), s.city ? 'Latest city CloudFront placed this visitor in (approximate); “(DB-IP)” means it comes from DB-IP’s database' : null],
     ['Network', s.asn ? `AS${s.asn}${hostingName(s.asn) ? ` · ${hostingName(s.asn)} (hosting network)` : ''}` : (seen ? 'Not recorded' : '')],
     ['Counted as a bot', seen ? (botReasonText(s.bot_reasons) || 'No') : '',
       'Crawler user agents count at once; the other reasons come from the bot check every 6 hours'],

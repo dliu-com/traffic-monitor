@@ -121,7 +121,7 @@ describe('sql', () => {
   test('city comes from the logged data, well-formed and validated', () => {
     const sql = overviewQueries(filters, env).summary;
     expect(sql).toContain("from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})$', 1))) AS city_raw");
-    expect(sql).toContain("CASE WHEN regexp_like(city_raw, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN city_raw END AS city");
+    expect(sql).toContain("CASE WHEN regexp_like(city_raw, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN city_raw\n        WHEN regexp_like(db_city, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN concat(db_city, ' (DB-IP)') END AS city");
     const last = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
     expect(ipQueries(filters, '203.0.113.7', env).summary).toContain(last);
     for (const list of ['ips', 'related']) expect(listQuery(filters, { list, ip: '203.0.113.7' }, env).sql).toContain(last);
@@ -272,6 +272,28 @@ describe('daily folders and the monthly archive', () => {
     expect(sql).not.toContain('"traffic"."cloudfront_logs"\n');
     expect(sql).toContain("month BETWEEN '2026-08' AND '2026-08'");
     expect(sql).toMatch(/FROM "traffic"."bot_ips"\n    WHERE dt BETWEEN '2026-08-01' AND '2026-08-01' AND false/);
+  });
+});
+
+describe('DB-IP cities', () => {
+  test('are joined by day and IP for the whole range, from the first day they exist', () => {
+    const sql = overviewQueries(parseFilters({ range: '90d' }, NOW, env), env).summary;
+    expect(sql).toContain("FROM \"traffic\".\"ip_cities\"\n    WHERE dt BETWEEN '2026-10-09' AND '2026-10-09'\n    GROUP BY dt, ip");
+    expect(sql).toContain('LEFT JOIN c ON city_dt = dt AND city_ip = c_ip');
+    const custom = overviewQueries(parseFilters({ from: '2026-10-20', to: '2026-10-25' }, NOW, env), env).summary;
+    expect(custom).toContain("WHERE dt BETWEEN '2026-10-20' AND '2026-10-25'\n    GROUP BY dt, ip");
+  });
+
+  test('ranges before the first day join none', () => {
+    const sql = overviewQueries(parseFilters({ from: '2026-08-01', to: '2026-08-31' }, NOW, env), env).summary;
+    expect(sql).toContain("WHERE dt BETWEEN '2026-10-09' AND '2026-08-31' AND false");
+  });
+
+  test('public statistics leave them out', () => {
+    const stats = require('../lambda/dashboard/public-stats');
+    const sql = stats.statsQuery(stats.RANGES['7d'](NOW), env);
+    expect(sql).not.toContain('ip_cities');
+    expect(sql).toContain('CAST(NULL AS varchar) AS db_city');
   });
 });
 
