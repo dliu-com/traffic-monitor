@@ -10,6 +10,25 @@ export const number = new Intl.NumberFormat();
 // public: not signed in, so the page shows the pre-computed public figures (stats/<range>.json) only.
 // defaultRange: the period when the URL has none (the Bots page uses 3d).
 export const state = { siteHosts: {}, hosting: {}, public: false, defaultRange: '7d' };
+
+// The ☰ menu on phones (dl-menu-toggle / dl-nav-collapsible from the shared kit).
+function menu() {
+  const toggle = document.querySelector('.dl-menu-toggle');
+  const nav = $('dl-menu');
+  if (!toggle || !nav) return;
+  const set = (open) => {
+    nav.classList.toggle('is-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  toggle.addEventListener('click', () => set(!nav.classList.contains('is-open')));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && nav.classList.contains('is-open')) { set(false); toggle.focus(); }
+  });
+  document.addEventListener('click', (event) => {
+    if (!nav.contains(event.target) && !toggle.contains(event.target)) set(false);
+  });
+}
+menu();
 export const siteName = (key) => state.siteHosts[key] || key;
 export const fmt = (value) => number.format(Number(value) || 0);
 export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;

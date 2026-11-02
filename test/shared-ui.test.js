@@ -1,5 +1,6 @@
 // Every page uses the shared dliu.com look (https://files.dliu.com/dliu.com/README.md):
-// dl.css first, the DL icon, the shared header and footer, dl-docs.css and dl-tabs on the docs pages,
+// dl.css first, the app's logo (DL Traffic's is the DL icon) top left and as favicon, the DL logo in the footer,
+// the shared header and footer, the ☰ menu on the dashboard pages, dl-docs.css and dl-tabs on the docs pages,
 // and style.css keeps only the dashboard's own rules on the shared --dl-* colours.
 const fs = require('fs');
 const path = require('path');
@@ -25,12 +26,22 @@ test.each(ALL_PAGES)('%s loads the shared stylesheet first and has the shared he
   expect(own).toBeGreaterThan(page.indexOf(DL_CSS));
   expect(page).toContain('<body class="dl-page">');
   expect(page).toContain('<header class="dl-header">');
-  expect(page).toContain(`<a class="dl-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}"`);
-  expect(page).toContain('<a class="dl-brand" href="/">Traffic</a>');
-  expect(page).toContain('<nav class="dl-nav" aria-label="Site">');
+  expect(page).toContain(`<a class="dl-brand" href="/"><img class="dl-logo" src="${DL_ICON}" alt="" width="32" height="32">DL Traffic</a>`);
+  expect(page).toMatch(/<nav (id="dl-menu" )?class="dl-nav( dl-nav-collapsible)?" aria-label="Site">/);
   expect(page).toMatch(/<main class="dl-main[" ]/);
-  expect(page).toContain('<footer class="dl-footer"><a href="https://dliu.com">dliu.com</a>');
+  expect(page).toContain(`<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a>`);
   expect(page).not.toContain('/about.css');
+});
+
+test.each(APP_PAGES)('%s has the ☰ menu just before the nav', (name) => {
+  expect(read(`web/${name}.html`)).toContain('<button type="button" class="dl-button dl-menu-toggle" aria-controls="dl-menu" aria-expanded="false" aria-label="Menu">☰</button>\n    <nav id="dl-menu" class="dl-nav dl-nav-collapsible" aria-label="Site">');
+});
+
+test('dash.js opens and closes the ☰ menu', () => {
+  const dash = read('web/dash.js');
+  expect(dash).toContain("nav.classList.toggle('is-open', open)");
+  expect(dash).toContain("toggle.setAttribute('aria-expanded', String(open))");
+  expect(dash).toContain("event.key === 'Escape'");
 });
 
 test.each(APP_PAGES)('%s keeps the ids the scripts use, with the shared sign-in buttons', (name) => {
@@ -77,6 +88,6 @@ test('the scripts use the shared classes for buttons, tables, cards and tabs', (
 test('the sign-in error page uses the shared header and stylesheet', () => {
   const source = read('lambda/dashboard/index.js');
   expect(source).toContain(DL_CSS);
-  expect(source).toContain('<body class="dl-page"><header class="dl-header"><a class="dl-logo"');
-  expect(source).toContain('<footer class="dl-footer">');
+  expect(source).toContain('<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="${DL_ICON}" alt="" width="32" height="32">DL Traffic</a>');
+  expect(source).toContain('<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com">');
 });

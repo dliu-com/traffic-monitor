@@ -132,7 +132,9 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 
 The dashboard uses the shared dliu.com look ([spec](https://files.dliu.com/dliu.com/README.md)): every page in `web/`
 loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs pages About, Bot detection, Running costs and
-Security also load `dl-docs.css` and use `dl-tabs`), and has the shared header with the DL icon and the shared footer.
+Security also load `dl-docs.css` and use `dl-tabs`), and has the shared header and footer. Top left is the app's
+logo and name ("DL Traffic"; its logo and favicon are the DL icon), and the footer starts with the shared DL logo.
+On phones the dashboard pages fold their links into a ☰ menu (`dl-menu-toggle`, opened by `web/dash.js`).
 Buttons, the period switch (`dl-segmented`), cards, tables and the Microsoft sign-in button use the shared `dl-*`
 classes; `web/style.css` keeps only the dashboard's own parts (KPIs, charts, site cards, filters) on the shared
 `--dl-*` colours. Light theme only. The CSP allows only `https://files.dliu.com/dliu.com/ui/` for styles and
