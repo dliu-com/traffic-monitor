@@ -366,6 +366,33 @@ describe('page details', () => {
     expect(timeseries).toContain("date_trunc('day', ts)");
   });
 
+  test('reading queries read page script reports for one page, one row per view, without bots', () => {
+    const q = pageQueries({ ...filters, startDay: '2026-11-01', endDay: '2026-11-02', since: '2026-11-01 12:00:00' }, "/it's", env);
+    for (const name of ['reading', 'reading_buckets', 'reading_views']) {
+      const sql = q[name];
+      expect(sql).toContain(`FROM "traffic"."page_events"`);
+      expect(sql).toContain("WHERE dt BETWEEN '2026/11/01' AND '2026/11/02'");
+      expect(sql).toContain("cs_uri_stem = '/t/e' AND log_data LIKE '1.%'");
+      expect(sql).toContain("split(url_decode(log_data), '.') AS f");
+      expect(sql).toContain('cardinality(f) = 11');
+      expect(sql).toContain('from_utf8(from_hex(f[11])) AS path');
+      expect(sql).toContain("WHERE site = 'cyy' AND path = '/it''s'");
+      expect(sql).toContain('GROUP BY view_id');
+      expect(sql).toContain("WHERE ts >= from_iso8601_timestamp('2026-11-01T12:00:00Z')");
+      expect(sql).toContain("LEFT JOIN b ON bot_dt = day AND bot_ip = ip");
+      expect(sql).toContain('SELECT * FROM rv WHERE bot_reason IS NULL');
+    }
+    expect(q.reading).toContain('approx_percentile(seconds, 0.5) AS median_seconds');
+    expect(q.reading).toContain('count_if(scroll >= 90) AS read_to_end');
+    expect(q.reading_buckets).toContain("WHEN seconds < 10 THEN '1 under 10 s'");
+    expect(q.reading_buckets).toContain("ELSE '5 90-100%' END");
+    expect(q.reading_views).toContain('ORDER BY ts DESC LIMIT 100');
+    const withBots = pageQueries({ ...filters, bots: 'include' }, '/a', env).reading;
+    expect(withBots).not.toContain('WHERE bot_reason');
+    expect(pageQueries({ ...filters, bots: 'only' }, '/a', env).reading).toContain('SELECT * FROM rv WHERE bot_reason IS NOT NULL');
+    expect(pageQueries({ ...filters, country: 'CN' }, '/a', env).reading).toContain("AND country = 'CN'");
+  });
+
   test('page path must be a logged path', () => {
     for (const path of [undefined, '', 'game/1', 'https://cyy.dliu.com/', '/a\nb', '/a\u0000', `/${'x'.repeat(1001)}`]) {
       expect(() => listQuery(filters, { list: 'page_ips', path }, env)).toThrow(BadRequest);
@@ -527,7 +554,7 @@ describe('handler', () => {
     queries.length = 0;
     const response = await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: '/game/1', range: '7d' } });
     expect(response.statusCode).toBe(200);
-    expect(queries).toHaveLength(3);
+    expect(queries).toHaveLength(6);
     expect(queries[0]).toContain("path = '/game/1'");
     expect((await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: 'nope' } })).statusCode).toBe(400);
     expect((await request('/api/page', { ...signedIn, queryStringParameters: { path: '/a' } })).statusCode).toBe(400);

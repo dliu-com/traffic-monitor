@@ -1,6 +1,6 @@
 import { App } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { ADDED_COLUMNS, LOG_COLUMNS, TrafficMonitorStack } from '../lib/traffic-monitor-stack';
+import { ADDED_COLUMNS, EVENT_FIELDS, LOG_COLUMNS, TrafficMonitorStack } from '../lib/traffic-monitor-stack';
 import { RECORD_FIELDS, TrafficLogDeliveryStack } from '../lib/log-delivery-stack';
 
 const template = Template.fromStack(new TrafficMonitorStack(new App(), 'TrafficMonitor', {
@@ -119,6 +119,7 @@ describe('log delivery stack', () => {
   const delivery = Template.fromStack(new TrafficLogDeliveryStack(new App(), 'TrafficLogDelivery', {
     logBucketName: 'example-log-bucket',
     sites: [{ key: 'root', distributionId: 'E1EXAMPLE' }, { key: 'cyy', distributionId: 'E2EXAMPLE' }],
+    eventsDistributionId: 'E3EXAMPLE',
     env: { account: '123456789012', region: 'us-east-1' },
   }));
 
@@ -127,7 +128,7 @@ describe('log delivery stack', () => {
       DestinationResourceArn: 'arn:aws:s3:::example-log-bucket/raw-v2',
       OutputFormat: 'w3c',
     });
-    delivery.resourceCountIs('AWS::Logs::DeliverySource', 2);
+    delivery.resourceCountIs('AWS::Logs::DeliverySource', 3);
     delivery.hasResourceProperties('AWS::Logs::DeliverySource', {
       Name: 'traffic-root',
       ResourceArn: 'arn:aws:cloudfront::123456789012:distribution/E1EXAMPLE',
@@ -138,6 +139,22 @@ describe('log delivery stack', () => {
       S3SuffixPath: 'cyy/{yyyy}/{MM}/{dd}',
       FieldDelimiter: '\t',
       RecordFields: Match.arrayWith(['c-ip', 'cs(Cookie)', 'c-country', 'asn', 'viewer-response-log-data']),
+    });
+  });
+
+  test('delivers the dashboard distribution to events/ as JSON without cookies or query strings', () => {
+    delivery.hasResourceProperties('AWS::Logs::DeliveryDestination', {
+      DestinationResourceArn: 'arn:aws:s3:::example-log-bucket/events',
+      OutputFormat: 'json',
+    });
+    delivery.hasResourceProperties('AWS::Logs::DeliverySource', {
+      Name: 'traffic-dashboard',
+      ResourceArn: 'arn:aws:cloudfront::123456789012:distribution/E3EXAMPLE',
+    });
+    delivery.hasResourceProperties('AWS::Logs::Delivery', {
+      DeliverySourceName: 'traffic-dashboard',
+      S3SuffixPath: '{yyyy}/{MM}/{dd}',
+      RecordFields: EVENT_FIELDS.map(([, field]) => field),
     });
   });
 
@@ -248,13 +265,51 @@ test('daily bot check: tables, schedule and least-privilege access', () => {
   expect(policies).toContain('/bots/status.json');
 });
 
-test('only the api behaviour accepts POST (for Check bots now)', () => {
+test('only the api and page-script behaviours accept POST', () => {
   const [dist] = Object.values(template.findResources('AWS::CloudFront::Distribution', { Properties: { DistributionConfig: { Comment: 'traffic dashboard' } } })) as any[];
   const config = dist.Properties.DistributionConfig;
   const api = config.CacheBehaviors.find((b: any) => b.PathPattern === 'api/*');
   expect(api.AllowedMethods).toEqual(expect.arrayContaining(['POST']));
   expect(config.DefaultCacheBehavior.AllowedMethods || ['GET', 'HEAD']).not.toContain('POST');
-  for (const b of config.CacheBehaviors.filter((b: any) => b.PathPattern !== 'api/*')) expect(b.AllowedMethods || []).not.toContain('POST');
+  for (const b of config.CacheBehaviors.filter((b: any) => !['api/*', 't/*'].includes(b.PathPattern))) {
+    expect(b.AllowedMethods || []).not.toContain('POST');
+  }
+  // t/* posts only reach the page-events function, which answers every request itself.
+  const t = config.CacheBehaviors.find((b: any) => b.PathPattern === 't/*');
+  expect(t.FunctionAssociations).toEqual([expect.objectContaining({ EventType: 'viewer-request' })]);
+  expect(t.CachePolicyId).toBe('4135ea2d-6df8-44a3-9df3-4b5a84be39ad');
+  expect(t.ViewerProtocolPolicy).toBe('https-only');
+});
+
+test('page events: function, JSON log table, delivery write access and dashboard read access', () => {
+  template.hasResourceProperties('AWS::CloudFront::Function', {
+    FunctionConfig: Match.objectLike({ Runtime: 'cloudfront-js-2.0', Comment: Match.stringLikeRegexp('page script') }),
+  });
+  template.hasResourceProperties('AWS::Glue::Table', {
+    TableInput: Match.objectLike({
+      Name: 'page_events',
+      Parameters: Match.objectLike({ 'projection.dt.format': 'yyyy/MM/dd' }),
+      StorageDescriptor: Match.objectLike({
+        Columns: EVENT_FIELDS.map(([name]) => ({ Name: name, Type: 'string' })),
+        SerdeInfo: Match.objectLike({
+          SerializationLibrary: 'org.openx.data.jsonserde.JsonSerDe',
+          Parameters: Match.objectLike({ 'mapping.log_data': 'viewer-request-log-data', 'mapping.cs_user_agent': 'cs(user-agent)' }),
+        }),
+      }),
+    }),
+  });
+  // Sign-in callbacks carry codes in the query string, and requests carry the session cookie.
+  const fields = EVENT_FIELDS.map(([, field]) => field);
+  expect(fields).not.toContain('cs-uri-query');
+  expect(fields).not.toContain('cs(Cookie)');
+  const policy = JSON.stringify(template.findResources('AWS::S3::BucketPolicy'));
+  expect(policy).toContain('/events/*');
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Prefix: 'events/', ExpirationInDays: 365 })]) },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Environment: { Variables: Match.objectLike({ GLUE_EVENTS_TABLE: 'page_events' }) },
+  });
 });
 
 test('public statistics: scheduled writer limited to stats/* and kept by deploys', () => {

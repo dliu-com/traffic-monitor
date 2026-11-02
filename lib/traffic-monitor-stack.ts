@@ -27,6 +27,21 @@ import {
 
 const ROOT = path.join(__dirname, '..');
 
+// Drops whole-line comments and indentation to keep CloudFront Functions small (10 KB limit).
+const squeeze = (code: string) => code.split('\n').filter((line) => !/^\s*\/\//.test(line))
+  .map((line) => line.trim()).filter(Boolean).join('\n');
+
+/**
+ * The page-events CloudFront Function with its sites and the page script filled in. The script's report
+ * URL is left as __ENDPOINT__, because the dashboard's domain is only known at deploy time.
+ */
+export function pageEventsSource(sites: { key: string; host: string }[]): string {
+  const script = squeeze(fs.readFileSync(path.join(ROOT, 'functions/page-script.js'), 'utf8'));
+  return squeeze(fs.readFileSync(path.join(ROOT, 'functions/page-events.js'), 'utf8'))
+    .replace('var SITES = __SITES__', () => `var SITES = ${JSON.stringify(Object.fromEntries(sites.map((s) => [s.host, s.key])))}`)
+    .replace('var SCRIPT = __SCRIPT__', () => `var SCRIPT = ${JSON.stringify(script)}`);
+}
+
 export const GLUE_DATABASE = 'traffic';
 export const GLUE_TABLE = 'cloudfront_logs';
 export const GLUE_ARCHIVE_TABLE = 'cloudfront_logs_archive';
@@ -35,6 +50,15 @@ const HOSTING_KEY = 'hosting/asns.json';
 export const GLUE_BOTS_TABLE = 'bot_ips';
 export const GLUE_REPUTATION_TABLE = 'ip_reputation';
 export const GLUE_CITIES_TABLE = 'ip_cities';
+export const GLUE_EVENTS_TABLE = 'page_events';
+// Page script reports (functions/page-events.js) are delivered here by the dashboard distribution's logging.
+export const EVENTS_PREFIX = 'events';
+// The dashboard distribution's log fields: no query string (sign-in callbacks carry codes) and no cookies.
+export const EVENT_FIELDS: Array<[string, string]> = [
+  ['date', 'date'], ['time', 'time'], ['c_ip', 'c-ip'], ['cs_method', 'cs-method'], ['cs_uri_stem', 'cs-uri-stem'],
+  ['sc_status', 'sc-status'], ['cs_user_agent', 'cs(User-Agent)'], ['c_country', 'c-country'], ['asn', 'asn'],
+  ['log_data', 'viewer-request-log-data'],
+];
 export const PARAMETER_PREFIX = '/traffic-monitor';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
 export const GEO_POLICY_NAME = 'dliu-traffic-geo';
@@ -70,6 +94,8 @@ export interface TrafficMonitorStackProps extends StackProps {
 
 export class TrafficMonitorStack extends Stack {
   readonly logBucket: s3.Bucket;
+  /** The dashboard distribution, which also serves the page script and takes its reports. */
+  readonly dashboardDistributionId: string;
 
   constructor(scope: Construct, id: string, props: TrafficMonitorStackProps) {
     super(scope, id, props);
@@ -99,6 +125,7 @@ export class TrafficMonitorStack extends Stack {
         { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
         { id: 'expire-db-ip-cities', prefix: 'cities/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
+        { id: 'expire-page-events', prefix: `${EVENTS_PREFIX}/`, expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-runs', prefix: 'abuseipdb/runs/', expiration: Duration.days(120) },
         // The bot check's per-day counts are needed for 4 days (bots.js); bot-state/reputation.json is kept.
         { id: 'expire-bot-check-state', prefix: 'bot-state/dt=', expiration: Duration.days(7) },
@@ -112,7 +139,7 @@ export class TrafficMonitorStack extends Stack {
       sid: 'AWSLogDeliveryWrite',
       principals: [new iam.ServicePrincipal('delivery.logs.amazonaws.com')],
       actions: ['s3:PutObject'],
-      resources: [logBucket.arnForObjects(`${V2_PREFIX}/*`)],
+      resources: [logBucket.arnForObjects(`${V2_PREFIX}/*`), logBucket.arnForObjects(`${EVENTS_PREFIX}/*`)],
       conditions: {
         StringEquals: { 's3:x-amz-acl': 'bucket-owner-full-control', 'aws:SourceAccount': this.account },
         ArnLike: { 'aws:SourceArn': `arn:aws:logs:us-east-1:${this.account}:delivery-source:*` },
@@ -289,10 +316,46 @@ export class TrafficMonitorStack extends Stack {
       ['domain', 'string'], ['is_tor', 'boolean'], ['checked', 'string'],
     ]);
     jsonTable('IpCitiesTable', GLUE_CITIES_TABLE, 'cities', [['ip', 'string'], ['city', 'string']]);
+
+    // The dashboard distribution's access logs (JSON lines, events/YYYY/MM/DD/), which hold the page script's
+    // reports (cs_uri_stem /t/e). JSON keys are the CloudFront field names, mapped to column names.
+    const eventsTable = new glue.CfnTable(this, 'PageEventsTable', {
+      catalogId: this.account,
+      databaseName: GLUE_DATABASE,
+      tableInput: {
+        name: GLUE_EVENTS_TABLE,
+        tableType: 'EXTERNAL_TABLE',
+        parameters: {
+          'projection.enabled': 'true',
+          'projection.dt.type': 'date',
+          'projection.dt.format': 'yyyy/MM/dd',
+          'projection.dt.range': '2026/11/01,NOW',
+          'projection.dt.interval': '1',
+          'projection.dt.interval.unit': 'DAYS',
+          'storage.location.template': `s3://${logBucket.bucketName}/${EVENTS_PREFIX}/` + '${dt}/',
+        },
+        partitionKeys: [{ name: 'dt', type: 'string' }],
+        storageDescriptor: {
+          location: `s3://${logBucket.bucketName}/${EVENTS_PREFIX}/`,
+          columns: EVENT_FIELDS.map(([name]) => ({ name, type: 'string' })),
+          inputFormat: 'org.apache.hadoop.mapred.TextInputFormat',
+          outputFormat: 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat',
+          serdeInfo: {
+            serializationLibrary: 'org.openx.data.jsonserde.JsonSerDe',
+            parameters: {
+              'case.insensitive': 'true',
+              'ignore.malformed.json': 'true',
+              ...Object.fromEntries(EVENT_FIELDS.map(([name, field]) => [`mapping.${name}`, field.toLowerCase()])),
+            },
+          },
+        },
+      },
+    });
+    eventsTable.addResourceDependency(database);
     const glueResources = [
       this.formatArn({ service: 'glue', resource: 'catalog' }),
       this.formatArn({ service: 'glue', resource: 'database', resourceName: GLUE_DATABASE }),
-      ...[GLUE_TABLE, GLUE_ARCHIVE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE, GLUE_CITIES_TABLE].map((name) =>
+      ...[GLUE_TABLE, GLUE_ARCHIVE_TABLE, GLUE_BOTS_TABLE, GLUE_REPUTATION_TABLE, GLUE_CITIES_TABLE, GLUE_EVENTS_TABLE].map((name) =>
         this.formatArn({ service: 'glue', resource: 'table', resourceName: `${GLUE_DATABASE}/${name}` })),
     ];
 
@@ -330,6 +393,7 @@ export class TrafficMonitorStack extends Stack {
         GLUE_BOTS_TABLE,
         GLUE_REPUTATION_TABLE,
         GLUE_CITIES_TABLE,
+        GLUE_EVENTS_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
         HOSTING_BUCKET: logBucket.bucketName,
@@ -367,6 +431,7 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantRead(dashboardHandler, 'bots/*');
     logBucket.grantRead(dashboardHandler, 'reputation/*');
     logBucket.grantRead(dashboardHandler, 'cities/*');
+    logBucket.grantRead(dashboardHandler, `${EVENTS_PREFIX}/*`);
     resultsBucket.grantReadWrite(dashboardHandler);
 
     // Weekly refresh of the cloud/hosting network list (ASNs counted as bots) from public lists.
@@ -599,10 +664,19 @@ export class TrafficMonitorStack extends Stack {
       code: cloudfront.FunctionCode.fromFile({ filePath: path.join(ROOT, 'functions/dashboard-pages.js') }),
     });
 
+    // The page script and its reports (functions/page-events.js), answered at the edge; nothing reaches the origin.
+    const pageEventsFunction = new cloudfront.Function(this, 'PageEventsFunction', {
+      comment: 'Serves the page script (/t/s.js) and logs its reports (/t/e)',
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(Fn.join('', pageEventsSource(props.sites).split('__ENDPOINT__')
+        .flatMap((part, i) => (i === 0 ? [part] : ['https://', domainName, '/t/e', part])))),
+    });
+
+    const siteOrigin = origins.S3BucketOrigin.withOriginAccessControl(siteBucket);
     const distribution = new cloudfront.Distribution(this, 'DashboardDistribution', {
       comment: 'traffic dashboard',
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
+        origin: siteOrigin,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
@@ -614,6 +688,15 @@ export class TrafficMonitorStack extends Stack {
         // POST is used only by /api/bots/run; the Lambda answers 405 to other non-GET calls.
         'api/*': { ...lambdaBehavior, allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL },
         'auth/*': lambdaBehavior,
+        // The page script and its beacons (sendBeacon POSTs); the function answers every request itself.
+        't/*': {
+          origin: siteOrigin,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          compress: true,
+          functionAssociations: [{ function: pageEventsFunction, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
+        },
       },
       domainNames: [domainName],
       certificate,
@@ -621,6 +704,7 @@ export class TrafficMonitorStack extends Stack {
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     });
+    this.dashboardDistributionId = distribution.distributionId;
 
     // New function URLs require both invoke permissions. CDK adds InvokeFunctionUrl.
     dashboardHandler.addPermission('CloudFrontInvokeFunction', {

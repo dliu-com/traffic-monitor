@@ -1,6 +1,6 @@
 import { Construct } from 'constructs';
 import { aws_logs as logs, Stack, StackProps } from 'aws-cdk-lib';
-import { V2_PREFIX } from './traffic-monitor-stack';
+import { EVENT_FIELDS, EVENTS_PREFIX, V2_PREFIX } from './traffic-monitor-stack';
 import FIELDS from '../lambda/partitioner/fields.json';
 
 // The CloudFront standard logging (v2) fields we ask for, in the order the partitioner writes them.
@@ -11,6 +11,8 @@ export interface TrafficLogDeliveryStackProps extends StackProps {
   logBucketName: string;
   /** Sites with the CloudFront distribution that serves them. */
   sites: { key: string; distributionId: string }[];
+  /** The dashboard distribution, whose logs carry the page script's reports (written as JSON under events/). */
+  eventsDistributionId?: string;
 }
 
 /**
@@ -45,6 +47,27 @@ export class TrafficLogDeliveryStack extends Stack {
         recordFields: RECORD_FIELDS,
         fieldDelimiter: '\t',
         s3SuffixPath: `${site.key}/{yyyy}/{MM}/{dd}`,
+        s3EnableHiveCompatiblePath: false,
+      });
+      delivery.addResourceDependency(source);
+    }
+
+    if (props.eventsDistributionId) {
+      const eventsDestination = new logs.CfnDeliveryDestination(this, 'EventsDestination', {
+        name: 'traffic-monitor-page-events',
+        destinationResourceArn: `arn:aws:s3:::${props.logBucketName}/${EVENTS_PREFIX}`,
+        outputFormat: 'json',
+      });
+      const source = new logs.CfnDeliverySource(this, 'Source-dashboard', {
+        name: 'traffic-dashboard',
+        resourceArn: `arn:aws:cloudfront::${this.account}:distribution/${props.eventsDistributionId}`,
+        logType: 'ACCESS_LOGS',
+      });
+      const delivery = new logs.CfnDelivery(this, 'Delivery-dashboard', {
+        deliverySourceName: source.name,
+        deliveryDestinationArn: eventsDestination.attrArn,
+        recordFields: EVENT_FIELDS.map(([, field]) => field),
+        s3SuffixPath: '{yyyy}/{MM}/{dd}',
         s3EnableHiveCompatiblePath: false,
       });
       delivery.addResourceDependency(source);

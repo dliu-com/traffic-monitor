@@ -12,13 +12,21 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   On HTML responses it sends `Accept-CH: Sec-CH-UA-Model, Sec-CH-UA-Platform-Version`, so Chrome-based browsers send
   their device model and real system version on later requests; the function validates them and logs
   `_m<hex model>_v<version>` after the ID and city. Safari and Firefox do not send client hints.
+- **Page script (optional)** – a site can add `<script src="https://traffic.dliu.com/t/s.js" defer></script>` to report
+  how long each page view was on screen, how far it was scrolled, the screen size, load time and script errors. A CloudFront
+  Function on the dashboard's `t/*` behavior (`functions/page-events.js`) serves the script and checks each report
+  (`/t/e`, sent with `sendBeacon`): the site must be in `config/sites.json` and match the page's `Origin`. It logs
+  `1.<view>.<n>.<site>.<dl_vid>.<seconds>.<scroll %>.<screen>.<load ms>.<errors>.<hex path>` and answers 204; nothing reaches
+  an origin. The dashboard distribution's logs go to `events/YYYY/MM/DD/` as JSON (Glue table `page_events`), without
+  cookies or query strings. The script sets no cookies; the existing `dl_vid` cookie is sent with the report.
 - **Query** – a partitioner Lambda puts each file's columns in a fixed order and moves it into `logs/site=<site>/dt=<date>/`;
   Glue + Athena (partition projection) query them.
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
   - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
   - `/page?site=<key>&path=<path>` **Page** – one page's views over time, how visitors arrived (WeChat Moments/chat/group
-    from WeChat's `from=` share tag, else the referrer host or Direct), its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
+    from WeChat's `from=` share tag, else the referrer host or Direct), reading (time on screen and scroll depth, from the page script),
+    its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - `/visitor?visitor=<dl_vid>` **Visitor** – everything one `dl_vid` visitor ID did across all sites: the IPs it used, the pages it viewed and its requests (click a visitor ID anywhere).
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.
@@ -110,6 +118,13 @@ const distribution = new cloudfront.Distribution(this, 'Distribution', {
 ```
 
 Deploy `TrafficMonitor` before any site; it can't be deleted while sites import its exports.
+
+3. Optionally, for time on page and scroll depth, load the page script on the site's pages and allow it in the CSP
+   (`script-src` and `connect-src` `https://traffic.dliu.com`):
+
+```html
+<script src="https://traffic.dliu.com/t/s.js" defer></script>
+```
 
 ## Notes
 

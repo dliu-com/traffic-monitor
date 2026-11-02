@@ -29,6 +29,7 @@ root.append(table(['Part', 'How it is billed', 'Typical month'], [
   ['DB-IP city database', 'Downloaded on the 2nd of each month (about 130 MB kept in S3), and read by the bot check when an IP has no CloudFront city', num('≈ $0.01')],
   ['CloudFront log delivery (standard logging v2)', '$0.25 per GB of log lines delivered to S3; a few MB a month at this traffic', num('< $0.01')],
   ['Visitor ID function', '$0.10 per million site requests', num('< $0.01')],
+  ['Page script (sites that load it)', 'Served and logged by a CloudFront Function ($0.10 per million); up to 8 small reports per page view, logged as JSON lines', num('< $0.01')],
   ['Partitioner Lambda', 'One short call per log file', num('$0 (free tier)')],
   ['AbuseIPDB', 'Free plan, up to 1,000 lookups a day', num('$0')],
   ['Dashboard Lambda, CloudFront, Glue, SSM', 'Per request, or free at this size', num('$0')],

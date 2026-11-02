@@ -38,6 +38,48 @@ const sources = staticTable({
 });
 sourceCard.body.append(sources.node);
 
+// From the page script (traffic.<domain>/t/s.js), on sites that load it: one row per page view.
+const seconds = (n) => (n === null || n === undefined || n === '' ? '' : n < 60 ? `${n} s` : `${Math.floor(n / 60)} min ${n % 60} s`);
+const percent = (part, whole) => (whole > 0 ? `${Math.round((part * 100) / whole)}%` : '');
+const readingCard = card('Reading', { subtitle: 'from the page script: time the page was on screen and how far it was scrolled' });
+const readingKpis = el('div');
+const bucketTable = (label) => staticTable({
+  empty: 'No reports',
+  columns: [
+    { label, value: (r) => r.bucket.slice(2), cls: 'nowrap' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
+    { label: 'Share', value: (r) => r.share, cls: 'num muted' },
+  ],
+});
+const timeBuckets = bucketTable('Time on page');
+const scrollBuckets = bucketTable('Scrolled to');
+readingCard.body.append(readingKpis, el('div', { class: 'grid grid-pair' }, [timeBuckets.node, scrollBuckets.node]));
+
+const readsCard = card('Page views read', { subtitle: 'latest 100 page views reported by the page script' });
+const reads = staticTable({
+  empty: 'No reports in this period (the site may not load the page script)',
+  rowClass: (r) => (isBot(r) ? 'bot' : null),
+  columns: [
+    { label: 'Time', value: (r) => formatTime(r.time), cls: 'nowrap' },
+    { label: 'Visitor ID', value: (r) => (r.visitor.startsWith('ip:') ? 'No cookie' : r.visitor), href: (r) => (r.visitor.startsWith('ip:') ? null : visitorLink(r.visitor)), cls: 'nowrap' },
+    { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
+    { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
+    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), cls: 'num nowrap' },
+    { label: 'Scrolled', value: (r) => `${r.scroll}%`, cls: 'num' },
+    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap muted' },
+    { label: 'Load', value: (r) => (r.load_ms ? `${(Number(r.load_ms) / 1000).toFixed(1)} s` : ''), title: () => 'Time until the page finished loading', cls: 'num muted' },
+    { label: 'Errors', value: (r) => (Number(r.errors) ? r.errors : ''), title: () => 'Script errors on the page', cls: 'num' },
+    ...uaColumns('ua'),
+  ],
+});
+readsCard.body.append(reads.node);
+
+// 390x844x300 -> 390×844 @3x
+function screenText(value) {
+  const m = /^(\d+)x(\d+)x(\d+)$/.exec(value || '');
+  return m ? `${m[1]}×${m[2]} @${Number(m[3]) / 100}x` : '';
+}
+
 const visitorCard = card('Visitors', { subtitle: 'who viewed this page, by dl_vid cookie (or IP without one)' });
 const visitors = pagedTable({
   list: 'page_visitors',
@@ -115,6 +157,8 @@ page.append(
   kpiBox,
   overTime.node,
   sourceCard.node,
+  readingCard.node,
+  readsCard.node,
   visitorCard.node,
   ipCard.node,
   logCard.node,
@@ -134,6 +178,31 @@ const loadKpis = widget(kpiBox, () => pagePart('summary'), ({ filters: f, rows }
 });
 
 const loadSources = widget(sourceCard.node, () => pagePart('sources'), ({ rows }) => sources.set(rows));
+
+const loadReading = widget(readingKpis, () => pagePart('reading'), ({ rows }) => {
+  const r = rows[0] || {};
+  const views = Number(r.views || 0);
+  readingKpis.replaceChildren(kpis([
+    ['Views reported', fmt(r.views), 'Page views the page script reported (bots left out unless shown)'],
+    ['Median time', views ? seconds(Number(r.median_seconds)) : '–', 'Half of the views had the page on screen for less than this'],
+    ['Average time', views ? seconds(Number(r.average_seconds)) : '–', 'Time the page was on screen, averaged over views'],
+    ['Read to the end', views ? percent(Number(r.read_to_end), views) : '–', 'Views scrolled to at least 90% of the page'],
+    ['Median scroll', views ? `${r.median_scroll}%` : '–', 'How far down half of the views reached'],
+    ['Median load', r.median_load_ms ? `${(Number(r.median_load_ms) / 1000).toFixed(1)} s` : '–', 'Time until the page finished loading'],
+  ]));
+});
+
+const loadBuckets = widget(readingCard.body, () => pagePart('reading_buckets'), ({ rows }) => {
+  const of = (kind) => {
+    const list = rows.filter((r) => r.kind === kind);
+    const total = list.reduce((sum, r) => sum + Number(r.views), 0);
+    return list.map((r) => ({ ...r, share: percent(Number(r.views), total) }));
+  };
+  timeBuckets.set(of('time'));
+  scrollBuckets.set(of('scroll'));
+});
+
+const loadReads = widget(readsCard.node, () => pagePart('reading_views'), ({ rows }) => reads.set(rows));
 
 const loadChart = widget(overTime.node, () => pagePart('timeseries'), ({ filters: f, rows }) => {
   const keys = buckets(f);
@@ -155,6 +224,9 @@ function load() {
   loadKpis();
   loadChart();
   loadSources();
+  loadReading();
+  loadBuckets();
+  loadReads();
   for (const table of [visitors, ips, log]) table.load();
 }
 

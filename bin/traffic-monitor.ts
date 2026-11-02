@@ -32,6 +32,7 @@ const monitor = new TrafficMonitorStack(app, 'TrafficMonitor', {
 const delivery = new TrafficLogDeliveryStack(app, 'TrafficLogDelivery', {
   logBucketName: monitor.logBucket.bucketName,
   sites: sites.map(({ key }) => ({ key, distributionId: distributions[key] })),
+  eventsDistributionId: monitor.dashboardDistributionId,
   env: { account, region: 'us-east-1' },
   crossRegionReferences: true,
 });
