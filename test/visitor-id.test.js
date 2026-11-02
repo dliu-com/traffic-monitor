@@ -21,6 +21,14 @@ function event(host, cookies = {}) {
 describe('visitor-id CloudFront function', () => {
   const handler = loadHandler();
 
+  test('an error leaves the response as it was, never a 503', () => {
+    const broken = new Function('cf', `${fs.readFileSync(path.join(__dirname, '..', 'functions', 'visitor-id.js'), 'utf8')
+      .replace("import cf from 'cloudfront';", '')}\nreturn handler;`)({ logCustomData: () => { throw new Error('log failed'); } });
+    const e = event('blog.dliu.com', { dl_vid: { value: 'abc123def456' } });
+    expect(broken(e)).toBe(e.response);
+    expect(broken({ request: {}, response: e.response })).toBe(e.response);
+  });
+
   test('sets a new shared-domain cookie when absent', () => {
     const response = handler(event('xiangqi.dliu.com'));
     const cookie = response.cookies.dl_vid;

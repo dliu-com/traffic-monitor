@@ -78,9 +78,16 @@ function askForHints(response) {
   }
 }
 
+// A failing function would turn the site's response into a 503, so any error leaves the response as it was.
 function handler(event) {
-  var request = event.request;
-  var response = event.response;
+  try {
+    return visit(event.request, event.response);
+  } catch (e) {
+    return event.response;
+  }
+}
+
+function visit(request, response) {
   askForHints(response);
   var existing = request.cookies && request.cookies[COOKIE_NAME];
   if (existing && /^[a-z0-9]{8,40}$/.test(existing.value)) {

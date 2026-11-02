@@ -29,7 +29,63 @@ function request(uri: string, query: Query = {}, headers: Record<string, string>
 const GOOD: Query = { pv: 'abc123def', n: '2', h: 'blog.example.com', p: '%2F2026103100', t: '42', s: '87', sc: '390x844x300', l: '812', e: '0' };
 const ORIGIN = { origin: 'https://blog.example.com' };
 
+// Runs the page script against a fake browser in which the traffic site is down.
+function runScript(body: string) {
+  const listeners: Record<string, Array<(e?: unknown) => void>> = {};
+  const timers: Array<() => void> = [];
+  const frames: Array<() => void> = [];
+  const pushed: string[] = [];
+  const rejections: unknown[] = [];
+  const sent: string[] = [];
+  let layouts = 0;
+  const location = { pathname: '/a', hostname: 'blog.example.com' };
+  const on = (type: string, fn: (e?: unknown) => void) => { (listeners[type] = listeners[type] || []).push(fn); };
+  const history = {
+    pushState(_s: unknown, _t: string, url: string) { pushed.push(url); location.pathname = url; return 'done'; },
+    replaceState() { return undefined; },
+  };
+  const document = {
+    visibilityState: 'visible',
+    documentElement: { get scrollHeight(): number { layouts += 1; if (layouts === 1) throw new Error('layout failed'); return 2000; }, scrollTop: 0 },
+    body: null,
+    addEventListener: on,
+  };
+  const window = {
+    addEventListener: on,
+    innerHeight: 800,
+    requestAnimationFrame: (fn: () => void) => frames.push(fn),
+    fetch: (url: string) => { sent.push(url); const p = Promise.reject(new Error('down')); p.catch(() => undefined); return { catch: (f: (e: unknown) => void) => p.catch(f) }; },
+  };
+  const navigator = { sendBeacon: () => { throw new Error('beacon failed'); } };
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+  new Function('window', 'document', 'location', 'history', 'navigator', 'screen', 'performance', 'setInterval', 'setTimeout', 'Image', body)(
+    window, document, location, history, navigator, { width: 390, height: 844 }, undefined,
+    (fn: () => void) => timers.push(fn), (fn: () => void) => frames.push(fn), function Image() { throw new Error('no images'); });
+  return { listeners, timers, frames, pushed, sent, history, location, rejections, done: () => process.off('unhandledRejection', onRejection) };
+}
+
 describe('page-events CloudFront function', () => {
+  test('the page script never lets an error or a failed report reach the page', async () => {
+    const { handler } = load();
+    const page = runScript(handler(request('/t/s.js', {}, {}, {}, 'GET')).body);
+    const fire = (type: string) => { for (const fn of page.listeners[type] || []) expect(() => fn()).not.toThrow(); };
+    fire('scroll');
+    fire('scroll');
+    expect(page.frames).toHaveLength(1);
+    expect(() => page.frames[0]()).not.toThrow();
+    expect(page.history.pushState(null, '', '/b')).toBe('done');
+    expect(page.pushed).toEqual(['/b']);
+    for (const tick of page.timers) expect(() => tick()).not.toThrow();
+    fire('pagehide');
+    fire('visibilitychange');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    page.done();
+    expect(page.sent.length).toBeGreaterThan(0);
+    expect(page.sent[0]).toContain('&p=%2Fa&');
+    expect(page.rejections).toEqual([]);
+  });
+
   test('fits within the CloudFront Functions size limit', () => {
     expect(Buffer.byteLength(load().code.split(ENDPOINT).join('https://traffic.dliu.com/t/e'))).toBeLessThan(10240);
   });
