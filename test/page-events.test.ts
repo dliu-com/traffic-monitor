@@ -152,9 +152,15 @@ describe('page-events CloudFront function', () => {
     expect(logged).toEqual([]);
   });
 
-  test('accepts a report without Origin or Referer', () => {
+  test('does not log a report without Origin or Referer (not sent from a page)', () => {
     const { handler, logged } = load();
-    handler(request('/t/e', GOOD));
+    expect(handler(request('/t/e', GOOD)).statusCode).toBe(204);
+    expect(logged).toEqual([]);
+  });
+
+  test('accepts a report with only a Referer from the site (image fallback)', () => {
+    const { handler, logged } = load();
+    handler(request('/t/e', GOOD, { referer: 'https://blog.example.com/2026103100' }));
     expect(logged).toHaveLength(1);
   });
 

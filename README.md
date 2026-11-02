@@ -12,7 +12,7 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   On HTML responses it sends `Accept-CH: Sec-CH-UA-Model, Sec-CH-UA-Platform-Version`, so Chrome-based browsers send
   their device model and real system version on later requests; the function validates them and logs
   `_m<hex model>_v<version>` after the ID and city. Safari and Firefox do not send client hints.
-- **Page script (optional)** – a site can add `<script src="https://traffic.dliu.com/t/s.js" defer></script>` to report
+- **Page script (optional)** – a site can add `<script src="https://traffic.dliu.com/t/s.js" async></script>` to report
   how long each page view was on screen, how far it was scrolled, the screen size, load time and script errors. A CloudFront
   Function on the dashboard's `t/*` behavior (`functions/page-events.js`) serves the script and checks each report
   (`/t/e`, sent with `sendBeacon`): the site must be in `config/sites.json` and match the page's `Origin`. It logs
@@ -121,11 +121,13 @@ const distribution = new cloudfront.Distribution(this, 'Distribution', {
 
 Deploy `TrafficMonitor` before any site; it can't be deleted while sites import its exports.
 
-3. Optionally, for time on page and scroll depth, load the page script on the site's pages and allow it in the CSP
-   (`script-src` and `connect-src` `https://traffic.dliu.com`):
+3. Optionally, for time on page and scroll depth, load the page script on every page and allow it in the CSP
+   (`script-src https://traffic.dliu.com/t/s.js` and `connect-src https://traffic.dliu.com/t/e`). The same script
+   serves every site; reports are kept only for hosts in `config/sites.json` sent from that host's pages. `async`
+   never delays the page; if traffic.dliu.com hangs, only the browser's loading bar waits.
 
 ```html
-<script src="https://traffic.dliu.com/t/s.js" defer></script>
+<script src="https://traffic.dliu.com/t/s.js" async></script>
 ```
 
 ## Look (shared dliu.com UI)

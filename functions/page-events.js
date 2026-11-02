@@ -36,10 +36,11 @@ function hex(text) {
   return out;
 }
 
-// The page that sent the report must be on the site it names (browsers send Origin with beacons).
+// The page that sent the report must be on the site it names. Browsers always send Origin with the script's
+// beacon and fetch reports (Referer with the image fallback), so a report with neither is not from a page.
 function fromSite(request, host) {
   var origin = request.headers.origin || request.headers.referer;
-  if (!origin) return true;
+  if (!origin) return false;
   var match = /^https:\/\/([^/:]+)/.exec(origin.value);
   return Boolean(match) && match[1].toLowerCase() === host;
 }
