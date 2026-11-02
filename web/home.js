@@ -30,10 +30,10 @@ const ips = pagedTable({
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
     ...uaColumns('last_ua'),
-    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
   ],
 });
 ipCard.head.append(ips.search);

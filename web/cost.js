@@ -69,6 +69,7 @@ root.append(flow({
 
 add('p', 'Prices are for eu-west-1 (Ireland) and us-east-1 log delivery in October 2026. File counts were measured on the live log bucket. Without dashboard use the monitor costs about $3.10 a year. Costs grow with traffic: roughly one extra log file per site per busy 5-minute period, $0.25 per extra GB of logs and $0.10 per million requests.', 'dg-note');
 
-const footer = document.createElement('footer');
+const footer = document.createElement('p');
+footer.className = 'source';
 footer.textContent = 'Source: dliu-com/traffic-monitor (lib/traffic-monitor-stack.ts, lambda/dashboard/compact.js).';
 root.append(footer);

@@ -20,11 +20,11 @@ const runs = staticTable({
   empty: 'No runs yet',
   columns: [
     { label: 'Day (UTC)', value: (r) => r.day, cls: 'nowrap' },
-    { label: 'Runs', value: (r) => fmt(r.runs), cls: 'num' },
-    { label: 'Lookups', value: (r) => fmt(r.looked_up), cls: 'num' },
-    { label: 'Of 1,000', value: (r) => `${Math.round((r.looked_up / 1000) * 100)}%`, cls: 'num' },
+    { label: 'Runs', value: (r) => fmt(r.runs), cls: 'dl-num' },
+    { label: 'Lookups', value: (r) => fmt(r.looked_up), cls: 'dl-num' },
+    { label: 'Of 1,000', value: (r) => `${Math.round((r.looked_up / 1000) * 100)}%`, cls: 'dl-num' },
     { label: 'Limit reached', value: (r) => (r.limit_hit ? 'yes' : ''), cls: 'nowrap' },
-    { label: 'Failures', value: (r) => (r.failures ? fmt(r.failures) : ''), cls: 'num' },
+    { label: 'Failures', value: (r) => (r.failures ? fmt(r.failures) : ''), cls: 'dl-num' },
   ],
 });
 runsCard.body.append(runs.node);
@@ -34,13 +34,13 @@ const days = staticTable({
   empty: 'No runs yet',
   columns: [
     { label: 'Log day (UTC)', value: (r) => r.day, cls: 'nowrap' },
-    { label: 'IPs seen', value: (r) => fmt(r.seen), cls: 'num' },
-    { label: 'People', value: (r) => fmt(r.people), cls: 'num' },
-    { label: 'Checked recently', value: (r) => fmt(r.skipped), cls: 'num' },
-    { label: 'Looked up', value: (r) => fmt(r.looked_up), cls: 'num' },
-    { label: 'Abusive', value: (r) => fmt(r.abusive), cls: 'num' },
-    { label: 'Waiting', value: (r) => (r.dropped == null ? fmt(r.left) : ''), cls: 'num' },
-    { label: 'Dropped as safe', value: (r) => (r.dropped == null ? '' : fmt(r.dropped)), cls: 'num' },
+    { label: 'IPs seen', value: (r) => fmt(r.seen), cls: 'dl-num' },
+    { label: 'People', value: (r) => fmt(r.people), cls: 'dl-num' },
+    { label: 'Checked recently', value: (r) => fmt(r.skipped), cls: 'dl-num' },
+    { label: 'Looked up', value: (r) => fmt(r.looked_up), cls: 'dl-num' },
+    { label: 'Abusive', value: (r) => fmt(r.abusive), cls: 'dl-num' },
+    { label: 'Waiting', value: (r) => (r.dropped == null ? fmt(r.left) : ''), cls: 'dl-num' },
+    { label: 'Dropped as safe', value: (r) => (r.dropped == null ? '' : fmt(r.dropped)), cls: 'dl-num' },
   ],
 });
 daysCard.body.append(days.node);
@@ -51,7 +51,7 @@ const scores = staticTable({
   empty: 'No lookups yet',
   columns: [
     { label: 'Abuse score', value: (r) => r.bucket },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
   ],
 });
 scoresCard.body.append(scores.node);
@@ -60,8 +60,8 @@ const usage = staticTable({
   empty: 'No lookups yet',
   columns: [
     { label: 'Usage type', value: (r) => r.usage_type },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
-    { label: 'Score ≥ 50', value: (r) => fmt(r.high_score), cls: 'num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
+    { label: 'Score ≥ 50', value: (r) => fmt(r.high_score), cls: 'dl-num' },
   ],
 });
 usageCard.body.append(usage.node);
@@ -71,12 +71,12 @@ const abusive = staticTable({
   empty: 'None found',
   columns: [
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
-    { label: 'Score', value: (r) => r.score, cls: 'num' },
-    { label: 'Reports', value: (r) => fmt(r.reports), cls: 'num' },
+    { label: 'Score', value: (r) => r.score, cls: 'dl-num' },
+    { label: 'Reports', value: (r) => fmt(r.reports), cls: 'dl-num' },
     { label: 'Why', value: (r) => [Number(r.score) >= 50 ? 'score' : '', yes(r.is_tor) ? 'Tor' : '', r.usage_type === DATA_CENTER ? 'data center' : ''].filter(Boolean).join(', ') },
-    { label: 'Usage type', value: (r) => r.usage_type || '', cls: 'muted' },
-    { label: 'Network', value: (r) => r.isp || '', cls: 'muted' },
-    { label: 'Checked', value: (r) => formatTime(r.checked), cls: 'nowrap muted' },
+    { label: 'Usage type', value: (r) => r.usage_type || '', cls: 'dl-muted' },
+    { label: 'Network', value: (r) => r.isp || '', cls: 'dl-muted' },
+    { label: 'Checked', value: (r) => formatTime(r.checked), cls: 'nowrap dl-muted' },
   ],
 });
 abusiveCard.body.append(abusive.node);

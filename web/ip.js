@@ -20,9 +20,9 @@ const sites = staticTable({
   empty: 'No requests from this IP in this period',
   columns: [
     { label: 'Site', value: (r) => siteName(r.site), href: (r) => siteLink(r.site) },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
+    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
   ],
 });
@@ -43,7 +43,7 @@ const related = pagedTable({
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
     ...uaColumns('last_ua'),
   ],
 });
@@ -61,8 +61,8 @@ const cookies = pagedTable({
     { label: 'Visitor ID', value: (r) => r.visitor_id, href: (r) => visitorLink(r.visitor_id), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
   ],
 });
 cookieCard.head.append(cookies.search);
@@ -81,8 +81,8 @@ const log = pagedTable({
     { label: 'Site', value: (r) => siteName(r.site), cls: 'nowrap' },
     { label: 'Method', value: (r) => r.method },
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
-    { label: 'Status', value: (r) => r.status, cls: 'num' },
-    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
+    { label: 'Status', value: (r) => r.status, cls: 'dl-num' },
+    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap dl-muted' },
     ...uaColumns('ua', false),
   ],
 });

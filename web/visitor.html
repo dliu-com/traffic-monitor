@@ -6,32 +6,38 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Visitor · dliu.com</title>
   <link rel="icon" type="image/png" href="https://files.dliu.com/dliu.com/favicon.png">
+  <link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl.css">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/visitor.js"></script>
 </head>
-<body>
-  <header>
-    <div class="brand-row">
-      <a class="logo" href="https://dliu.com" aria-label="dliu.com"><img src="https://files.dliu.com/dliu.com/favicon.png" width="36" height="36" alt="DL"></a>
-      <h1><a class="brand" href="https://traffic.dliu.com/">DL Traffic</a></h1>
-      <nav><a href="/" aria-current="page">Dashboard</a><a href="/bots" class="private-only">Bots</a><a href="/about">About</a></nav>
-    </div>
-    <div id="account" hidden><span id="user"></span> · <a href="/auth/logout">Sign out</a></div>
+<body class="dl-page">
+  <header class="dl-header">
+    <a class="dl-logo" href="https://dliu.com" aria-label="dliu.com"><img src="https://files.dliu.com/dliu.com/favicon.png" alt="DL" width="32" height="32"></a>
+    <a class="dl-brand" href="/">Traffic</a>
+    <nav class="dl-nav" aria-label="Site">
+      <a class="dl-nav-link" href="/" aria-current="page">Dashboard</a>
+      <a class="dl-nav-link private-only" href="/bots">Bots</a>
+      <a class="dl-button" href="/about">About</a>
+      <span id="account" class="account" hidden><span id="user" class="dl-account"></span><a class="dl-button" href="/auth/logout">Sign out</a></span>
+      <a id="signin-link" class="dl-button dl-signin" href="/auth/login" hidden>Sign in</a>
+    </nav>
   </header>
 
-  <main>
-    <section id="signin" hidden class="signin">
+  <main class="dl-main">
+    <section id="signin" hidden class="dl-card signin">
       <h2>Traffic across the dliu.com sites</h2>
       <p>This page is private. Sign in with your dliu.com Microsoft account to view it. The traffic totals are public on the <a href="/">dashboard</a>.</p>
-      <a class="ms-signin" href="/auth/login">
+      <a class="dl-ms-signin" href="/auth/login">
         <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
         <span>Sign in with Microsoft</span>
       </a>
-      <a class="about-button" href="/about">How it works — view the About page →</a>
+      <a class="dl-button" href="/about">How it works — view the About page →</a>
     </section>
 
     <p id="status" role="status">Loading…</p>
     <div id="page" hidden></div>
   </main>
+
+  <footer class="dl-footer"><a href="https://dliu.com">dliu.com</a> · <a href="/about">About</a> · <a href="https://github.com/dliu-com/traffic-monitor">Source</a></footer>
 </body>
 </html>

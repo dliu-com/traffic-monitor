@@ -217,6 +217,7 @@ detailList('Deployment', [
 ]);
 root.append(more('More technical details (text)', details));
 
-const footer = document.createElement('footer');
+const footer = document.createElement('p');
+footer.className = 'source';
 footer.textContent = 'Source: dliu-com/traffic-monitor';
 root.append(footer);

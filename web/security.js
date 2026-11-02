@@ -148,7 +148,7 @@ const detailList = (title, items) => {
   details.append(h3, ul);
 };
 detailList('Response headers', [
-  "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://files.dliu.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' https://files.dliu.com/dliu.com/ui/; img-src 'self' data: https://files.dliu.com/dliu.com/; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'Strict-Transport-Security: max-age=31536000',
   'X-Frame-Options: DENY · X-Content-Type-Options: nosniff · Referrer-Policy: no-referrer',
   'Permissions-Policy: camera, microphone, geolocation, payment, usb and interest-cohort disabled',
@@ -191,6 +191,7 @@ for (const [href, text] of [
 details.append(links);
 root.append(more('More technical details (text)', details));
 
-const footer = document.createElement('footer');
+const footer = document.createElement('p');
+footer.className = 'source';
 footer.textContent = 'Source: dliu-com/traffic-monitor · See also the About page for the architecture and cost.';
 root.append(footer);

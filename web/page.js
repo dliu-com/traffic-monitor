@@ -32,8 +32,8 @@ const sources = staticTable({
   empty: 'No one viewed this page in this period',
   columns: [
     { label: 'Arrived via', value: (r) => r.source, title: (r) => SOURCE_HELP[r.source] || (r.source === 'Direct' ? 'No referrer: typed, bookmarked, or opened from an app' : 'The page the link was on'), cls: 'nowrap' },
-    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
+    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
   ],
 });
 sourceCard.body.append(sources.node);
@@ -47,8 +47,8 @@ const bucketTable = (label) => staticTable({
   empty: 'No reports',
   columns: [
     { label, value: (r) => r.bucket.slice(2), cls: 'nowrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
-    { label: 'Share', value: (r) => r.share, cls: 'num muted' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
+    { label: 'Share', value: (r) => r.share, cls: 'dl-num dl-muted' },
   ],
 });
 const timeBuckets = bucketTable('Time on page');
@@ -64,11 +64,11 @@ const reads = staticTable({
     { label: 'Visitor ID', value: (r) => (r.visitor.startsWith('ip:') ? 'No cookie' : r.visitor), href: (r) => (r.visitor.startsWith('ip:') ? null : visitorLink(r.visitor)), cls: 'nowrap' },
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
-    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), cls: 'num nowrap' },
-    { label: 'Scrolled', value: (r) => `${r.scroll}%`, cls: 'num' },
-    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap muted' },
-    { label: 'Load', value: (r) => (r.load_ms ? `${(Number(r.load_ms) / 1000).toFixed(1)} s` : ''), title: () => 'Time until the page finished loading', cls: 'num muted' },
-    { label: 'Errors', value: (r) => (Number(r.errors) ? r.errors : ''), title: () => 'Script errors on the page', cls: 'num' },
+    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), cls: 'dl-num nowrap' },
+    { label: 'Scrolled', value: (r) => `${r.scroll}%`, cls: 'dl-num' },
+    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap dl-muted' },
+    { label: 'Load', value: (r) => (r.load_ms ? `${(Number(r.load_ms) / 1000).toFixed(1)} s` : ''), title: () => 'Time until the page finished loading', cls: 'dl-num dl-muted' },
+    { label: 'Errors', value: (r) => (Number(r.errors) ? r.errors : ''), title: () => 'Script errors on the page', cls: 'dl-num' },
     ...uaColumns('ua'),
   ],
 });
@@ -91,13 +91,13 @@ const visitors = pagedTable({
   columns: [
     { label: 'Visitor ID', value: (r) => r.visitor_id || 'No cookie', href: (r) => (r.visitor_id ? visitorLink(r.visitor_id) : null), title: (r) => (r.visitor_id ? null : 'Counted by IP address: the browser never sent the dl_vid cookie back'), cls: 'nowrap' },
     { label: 'Last IP', value: (r) => r.last_ip, href: (r) => ipLink(r.last_ip), cls: 'nowrap' },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
     { label: 'Arrived via', value: (r) => r.source || '', title: (r) => SOURCE_HELP[r.source] || null, cls: 'nowrap' },
     { label: 'Last viewed', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
-    { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
     ...uaColumns('last_ua'),
   ],
 });
@@ -116,10 +116,10 @@ const ips = pagedTable({
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
-    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
+    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
     { label: 'Last viewed', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
-    { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
     ...uaColumns('last_ua'),
   ],
 });
@@ -139,10 +139,10 @@ const log = pagedTable({
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
-    { label: 'Visitor ID', value: (r) => r.visitor_id || '', href: (r) => visitorLink(r.visitor_id), cls: 'nowrap muted' },
+    { label: 'Visitor ID', value: (r) => r.visitor_id || '', href: (r) => visitorLink(r.visitor_id), cls: 'nowrap dl-muted' },
     { label: 'Method', value: (r) => r.method },
-    { label: 'Status', value: (r) => r.status, cls: 'num' },
-    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
+    { label: 'Status', value: (r) => r.status, cls: 'dl-num' },
+    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap dl-muted' },
     ...uaColumns('ua'),
   ],
 });

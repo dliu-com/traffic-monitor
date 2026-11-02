@@ -37,8 +37,8 @@ const pages = pagedTable({
   searchUrls: true,
   columns: [
     { label: 'Page', value: (r) => r.path, href: (r) => pageDetailsLink(site, r.path), external: true, title: () => 'Visitors and IP addresses of this page', cls: 'wrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
-    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
+    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
   ],
 });
 pagesCard.head.append(pages.search);
@@ -53,8 +53,8 @@ const referrers = pagedTable({
   empty: 'No external referrers',
   columns: [
     { label: 'Referrer', value: (r) => r.referrer || '(unknown)', cls: 'wrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
-    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
+    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
   ],
 });
 refCard.head.append(referrers.search);
@@ -73,10 +73,10 @@ const ips = pagedTable({
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
     ...uaColumns('last_ua'),
-    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
   ],
 });
 ipCard.head.append(ips.search);
@@ -99,8 +99,8 @@ const log = pagedTable({
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Method', value: (r) => r.method },
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
-    { label: 'Status', value: (r) => r.status, cls: 'num' },
-    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
+    { label: 'Status', value: (r) => r.status, cls: 'dl-num' },
+    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap dl-muted' },
     ...uaColumns('ua'),
   ],
 });

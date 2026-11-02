@@ -37,7 +37,7 @@ export function el(tag, props = {}, children = []) {
 
 export function setStatus(text, isError) {
   $('status').textContent = text || '';
-  $('status').className = isError ? 'error' : '';
+  $('status').className = isError ? 'dl-error' : '';
 }
 
 // "Include bots" is remembered in a cookie (this dashboard only) and sent with the API calls of pages that
@@ -77,7 +77,7 @@ const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b78
 // "Check bots now": starts the bot check (today and the 3 days before) and shows when it last ran.
 // onDone reloads the page's widgets when a run this page is watching finishes.
 export function botCheck(onDone) {
-  const button = el('button', { type: 'button', class: 'bot-check', text: 'Check bots now' });
+  const button = el('button', { type: 'button', class: 'dl-button bot-check', text: 'Check bots now' });
   const info = el('span', { class: 'bot-check-info' });
   let timer;
   let watching = false;
@@ -146,6 +146,8 @@ export function handleError(error) {
     $('page').hidden = true;
     $('account').hidden = true;
     $('signin').hidden = false;
+    $('signin-link').hidden = false;
+    document.body.classList.add('public');
     setStatus('');
     return;
   }
@@ -367,7 +369,7 @@ const zone = () => {
 };
 
 export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
-  const bar = el('div', { class: 'period', role: 'group', 'aria-label': 'Period' });
+  const bar = el('div', { class: 'dl-segmented period', role: 'group', 'aria-label': 'Period' });
   const custom = el('form', { class: 'custom-dates', hidden: true, novalidate: true });
   const timeInput = (name, label) => el('input', {
     type: 'text', name, required: true, inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false',
@@ -378,7 +380,7 @@ export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
   custom.append(
     el('label', {}, ['From ', from]),
     el('label', {}, ['To ', to]),
-    el('button', { type: 'submit', text: 'Show' }),
+    el('button', { type: 'submit', class: 'dl-button dl-button-primary', text: 'Show' }),
     el('span', { class: 'zone', text: `your local time (${zone()})` }),
   );
   const buttons = [];
@@ -524,9 +526,9 @@ export function countriesTable(scope) {
         },
         title: (r) => (isCode(r.country) ? `Show only ${countryName(r.country)}` : UNKNOWN_COUNTRY_HINT),
       },
-      { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
-      { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-      { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+      { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
+      { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+      { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
     ],
   });
 }
@@ -538,7 +540,7 @@ export function countryNote(onChange) {
     const current = country();
     note.hidden = !current;
     if (!current) return;
-    const clear = el('button', { type: 'button', class: 'link-button', text: 'Show all countries' });
+    const clear = el('button', { type: 'button', class: 'dl-button dl-button-link', text: 'Show all countries' });
     clear.addEventListener('click', () => {
       const q = new URLSearchParams(location.search);
       q.delete('country');
@@ -554,7 +556,7 @@ export function countryNote(onChange) {
 export function card(title, { subtitle, tools = [], className } = {}) {
   const head = el('div', { class: 'card-head' }, [el('h2', {}, [title, subtitle ? el('small', { text: subtitle }) : null]), ...tools]);
   const body = el('div', { class: 'card-body' });
-  const node = el('section', { class: `card${className ? ` ${className}` : ''}` }, [head, body]);
+  const node = el('section', { class: `dl-card card${className ? ` ${className}` : ''}` }, [head, body]);
   return { node, head, body };
 }
 
@@ -572,7 +574,7 @@ export function facts(items) {
 function tableBody(table, columns, rows, empty, rowClass) {
   const head = el('thead', {}, [el('tr', {}, columns.map((c) => el('th', { class: c.cls, text: c.label })))]);
   const body = el('tbody');
-  if (!rows.length) body.append(el('tr', {}, [el('td', { class: 'empty', colspan: columns.length, text: empty })]));
+  if (!rows.length) body.append(el('tr', {}, [el('td', { class: 'dl-muted', colspan: columns.length, text: empty })]));
   for (const row of rows) {
     const reason = row.bot_reason && botReasonText(row.bot_reason);
     const tr = el('tr', { class: rowClass ? rowClass(row) : null, title: reason ? `Bot: ${reason}` : null });
@@ -593,8 +595,8 @@ function tableBody(table, columns, rows, empty, rowClass) {
 // A short list that is always shown in full (e.g. the sites one IP visited).
 // columns: { label, value(row), cls, href(row), title(row), external (open the link in a new tab) }
 export function staticTable({ columns, empty = 'No data', rowClass }) {
-  const table = el('table');
-  return { node: el('div', { class: 'table-wrap' }, [table]), set: (rows) => tableBody(table, columns, rows, empty, rowClass) };
+  const table = el('table', { class: 'dl-table' });
+  return { node: el('div', { class: 'dl-table-wrap' }, [table]), set: (rows) => tableBody(table, columns, rows, empty, rowClass) };
 }
 
 // Characters the server accepts in a search; anything else is turned into a space.
@@ -605,11 +607,11 @@ const SEARCH_JUNK = /[^\p{L}\p{N}\p{M} ._:/@?=&+~,#%()-]/gu;
 // With searchUrls, a full address typed in the search (https://site/path) is searched as its path.
 export function pagedTable({ list, params, pageSize, columns, placeholder = 'Search…', empty = 'No data', rowClass, searchUrls }) {
   const search = el('input', { type: 'search', class: 'table-filter', placeholder, 'aria-label': placeholder, maxlength: 100, hidden: true });
-  const table = el('table');
+  const table = el('table', { class: 'dl-table' });
   const info = el('span', { class: 'table-info' });
-  const fewer = el('button', { type: 'button', class: 'link-button', text: 'Show fewer', hidden: true });
-  const more = el('button', { type: 'button', class: 'show-more', hidden: true });
-  const node = el('div', {}, [el('div', { class: 'table-wrap' }, [table]), more, el('div', { class: 'table-foot' }, [info, fewer])]);
+  const fewer = el('button', { type: 'button', class: 'dl-button dl-button-link', text: 'Show fewer', hidden: true });
+  const more = el('button', { type: 'button', class: 'dl-button show-more', hidden: true });
+  const node = el('div', {}, [el('div', { class: 'dl-table-wrap' }, [table]), more, el('div', { class: 'table-foot' }, [info, fewer])]);
   let rows = [];
   let total = 0;
   let query = '';
@@ -861,7 +863,7 @@ export function browserLabel(ua, asn) {
 }
 // Browser and Device table columns, read from the user agent in `key` and its client hints (all of it on hover).
 export const uaColumns = (key, withHosting = true) => [
-  { label: 'Browser', value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'muted' },
-  { label: 'Device', value: (r) => describeDevice(r[key], r[hintsKey(key)]), title: (r) => uaTitle(r[key], r[hintsKey(key)]), cls: 'muted' },
+  { label: 'Browser', value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'dl-muted' },
+  { label: 'Device', value: (r) => describeDevice(r[key], r[hintsKey(key)]), title: (r) => uaTitle(r[key], r[hintsKey(key)]), cls: 'dl-muted' },
 ];
 export const uaTitle = (ua, hints) => (hints ? `${ua}\nClient hints: ${hints.replace('|', ', system ')}` : ua);

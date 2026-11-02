@@ -28,13 +28,19 @@ function redirect(location, cookies) {
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+const DL_ICON = 'https://files.dliu.com/dliu.com/favicon.png';
+
 function errorPage(statusCode, message, cookies) {
   return {
     statusCode,
     headers: { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' },
     ...(cookies ? { cookies } : {}),
-    body: `<!doctype html><meta charset="utf-8"><title>Traffic</title><link rel="stylesheet" href="/style.css">
-<body><main class="error-page"><h1>Sign-in problem</h1><p>${escapeHtml(message)}</p><p><a href="/auth/login">Try again</a></p></main></body>`,
+    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in problem · Traffic · dliu.com</title>
+<link rel="icon" type="image/png" href="${DL_ICON}"><link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl.css"><link rel="stylesheet" href="/style.css">
+<body class="dl-page"><header class="dl-header"><a class="dl-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}" alt="DL" width="32" height="32"></a><a class="dl-brand" href="/">Traffic</a>
+<nav class="dl-nav" aria-label="Site"><a class="dl-button" href="/about">About</a><a class="dl-button dl-signin" href="/auth/login">Sign in</a></nav></header>
+<main class="dl-main dl-narrow"><h1>Sign-in problem</h1><p>${escapeHtml(message)}</p><p><a class="dl-button dl-button-primary" href="/auth/login">Try again</a></p></main>
+<footer class="dl-footer"><a href="https://dliu.com">dliu.com</a> · <a href="/about">About</a></footer></body></html>`,
   };
 }
 

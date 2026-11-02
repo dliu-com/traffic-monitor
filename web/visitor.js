@@ -20,9 +20,9 @@ const sites = staticTable({
   empty: 'No requests from this visitor in this period',
   columns: [
     { label: 'Site', value: (r) => siteName(r.site), href: (r) => siteLink(r.site) },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
+    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
   ],
 });
@@ -44,7 +44,7 @@ const ips = pagedTable({
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'num' },
+    { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
     ...uaColumns('last_ua'),
   ],
 });
@@ -61,8 +61,8 @@ const pages = pagedTable({
   columns: [
     { label: 'Site', value: (r) => siteName(r.site), cls: 'nowrap' },
     { label: 'Page', value: (r) => r.path, href: (r) => pageDetailsLink(r.site, r.path), cls: 'wrap' },
-    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
-    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'dl-num' },
+    { label: 'First seen', value: (r) => formatTime(r.first_seen), cls: 'nowrap dl-muted' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
   ],
 });
@@ -73,17 +73,17 @@ pagesCard.body.append(pages.node);
 const seconds = (n) => (!Number.isFinite(n) ? '' : n < 60 ? `${n} s` : n < 3600 ? `${Math.floor(n / 60)} min ${n % 60} s`
   : `${Math.floor(n / 3600)} h ${Math.floor((n % 3600) / 60)} min`);
 const readingCard = card('Reading', { subtitle: 'page views reported by the page script, newest first' });
-const readingNote = el('p', { class: 'muted' });
+const readingNote = el('p', { class: 'dl-muted' });
 const reading = staticTable({
   empty: 'No reports in this period (only sites that load the page script report reading)',
   columns: [
     { label: 'Time', value: (r) => formatTime(r.time), cls: 'nowrap' },
     { label: 'Site', value: (r) => siteName(r.site), cls: 'nowrap' },
     { label: 'Page', value: (r) => r.path, href: (r) => pageDetailsLink(r.site, r.path), cls: 'wrap' },
-    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), title: () => 'Time the page was visible on screen', cls: 'num nowrap' },
-    { label: 'Scrolled', value: (r) => `${r.scroll}%`, title: () => 'Furthest point scrolled to', cls: 'num' },
-    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap muted' },
-    { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap muted' },
+    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), title: () => 'Time the page was visible on screen', cls: 'dl-num nowrap' },
+    { label: 'Scrolled', value: (r) => `${r.scroll}%`, title: () => 'Furthest point scrolled to', cls: 'dl-num' },
+    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap dl-muted' },
+    { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap dl-muted' },
   ],
 });
 readingCard.body.append(readingNote, reading.node);
@@ -108,8 +108,8 @@ const log = pagedTable({
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Method', value: (r) => r.method },
     { label: 'Path', value: (r) => r.path, cls: 'wrap' },
-    { label: 'Status', value: (r) => r.status, cls: 'num' },
-    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap muted' },
+    { label: 'Status', value: (r) => r.status, cls: 'dl-num' },
+    { label: 'Referrer', value: (r) => r.referrer, cls: 'wrap dl-muted' },
     ...uaColumns('ua', false),
   ],
 });

@@ -20,8 +20,8 @@ const reasons = staticTable({
   empty: 'No bots in this period',
   columns: [
     { label: 'Reason', value: (r) => reasonLabel(r.reason) },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
   ],
 });
 reasonCard.body.append(reasons.node);
@@ -31,9 +31,9 @@ const sites = staticTable({
   empty: 'No bots in this period',
   columns: [
     { label: 'Site', value: (r) => siteName(r.site) },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
-    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap muted' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap dl-muted' },
   ],
 });
 siteCard.body.append(sites.node);
@@ -51,7 +51,7 @@ const ips = pagedTable({
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
     ...uaColumns('last_ua'),
   ],
 });
@@ -67,10 +67,10 @@ const agents = pagedTable({
   empty: 'No bots in this period',
   columns: [
     { label: 'User agent', value: (r) => (r.ua && r.ua !== '-' ? r.ua : '(none)'), cls: 'wrap' },
-    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'num' },
-    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'num' },
+    { label: 'Requests', value: (r) => fmt(r.requests), cls: 'dl-num' },
+    { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
     { label: 'Sites', value: (r) => (r.sites || '').split(',').filter(Boolean).map(siteName).join(', ') },
-    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap muted' },
+    { label: 'Last seen', value: (r) => formatTime(r.last_seen), cls: 'nowrap dl-muted' },
   ],
 });
 agentCard.head.append(agents.search);
@@ -89,7 +89,7 @@ const log = pagedTable({
     { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap' },
     { label: 'Why', value: (r) => reasonLabel(r.bot_reason) },
     { label: 'Request', value: (r) => `${r.method} ${r.path}`, cls: 'wrap' },
-    { label: 'Status', value: (r) => r.status, cls: 'num' },
+    { label: 'Status', value: (r) => r.status, cls: 'dl-num' },
     ...uaColumns('ua'),
   ],
 });
