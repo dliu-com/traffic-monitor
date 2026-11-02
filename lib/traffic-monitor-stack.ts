@@ -704,7 +704,9 @@ export class TrafficMonitorStack extends Stack {
       certificate,
       defaultRootObject: 'index.html',
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      // Every edge location (most readers are in Europe and Asia) and HTTP/3; within the free allowance.
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_ALL,
+      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
     });
     this.dashboardDistributionId = distribution.distributionId;
 
@@ -716,15 +718,29 @@ export class TrafficMonitorStack extends Stack {
       invokedViaFunctionUrl: true,
     });
 
+    // Browsers revalidate every dashboard file on every load (a 304 when unchanged), so a deploy shows up at
+    // once and a new page never runs old scripts. The public statistics are written by the PublicStats
+    // function and are left out, so a deploy never deletes them. Each deployment only syncs (and prunes) its
+    // own files, and each invalidates the distribution.
     new s3deploy.BucketDeployment(this, 'DashboardContent', {
       sources: [s3deploy.Source.asset(path.join(ROOT, 'web'))],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
-      // The public statistics are written by the PublicStats function; a deploy must not delete them.
-      exclude: ['stats/*'],
-      // Browsers revalidate on every load (a 304 when unchanged), so a deploy shows up at once.
+      exclude: ['*'],
+      include: ['*.html'],
       cacheControl: [s3deploy.CacheControl.noCache()],
+    });
+    // Scripts and styles: the edge also keeps them for a day (every deploy invalidates it), so a revalidation
+    // is answered at the edge instead of from S3.
+    new s3deploy.BucketDeployment(this, 'DashboardAssets', {
+      sources: [s3deploy.Source.asset(path.join(ROOT, 'web'))],
+      destinationBucket: siteBucket,
+      distribution,
+      distributionPaths: ['/*'],
+      exclude: ['stats/*', '*.html'],
+      cacheControl: [s3deploy.CacheControl.setPublic(), s3deploy.CacheControl.maxAge(Duration.seconds(0)),
+        s3deploy.CacheControl.mustRevalidate(), s3deploy.CacheControl.sMaxAge(Duration.days(1))],
     });
 
     new route53.ARecord(this, 'DashboardAliasRecord', {

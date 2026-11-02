@@ -40,7 +40,19 @@ test('shares an origin request policy that adds only the viewer city', () => {
 
 test('dashboard files are revalidated on every load so deploys show at once', () => {
   template.hasResourceProperties('Custom::CDKBucketDeployment', {
-    SystemMetadata: { 'cache-control': 'no-cache' },
+    Exclude: ['*'], Include: ['*.html'], SystemMetadata: { 'cache-control': 'no-cache' },
+  });
+  // Scripts and styles are also kept at the edge for a day; every deploy invalidates it.
+  template.hasResourceProperties('Custom::CDKBucketDeployment', {
+    Exclude: ['stats/*', '*.html'],
+    SystemMetadata: { 'cache-control': 'public, max-age=0, must-revalidate, s-maxage=86400' },
+    DistributionPaths: ['/*'],
+  });
+});
+
+test('the dashboard distribution uses every edge location and HTTP/3', () => {
+  template.hasResourceProperties('AWS::CloudFront::Distribution', {
+    DistributionConfig: Match.objectLike({ Comment: 'traffic dashboard', PriceClass: 'PriceClass_All', HttpVersion: 'http2and3' }),
   });
 });
 
@@ -321,7 +333,10 @@ test('public statistics: scheduled writer limited to stats/* and kept by deploys
     ScheduleExpression: 'cron(0 2 * * ? *)',
     Targets: [Match.objectLike({ Input: JSON.stringify({ ranges: ['7d', '30d', '90d'] }) })],
   });
-  template.hasResourceProperties('Custom::CDKBucketDeployment', { Exclude: ['stats/*'] });
+  for (const deployment of Object.values(template.findResources('Custom::CDKBucketDeployment')) as any[]) {
+    const { Exclude: exclude = [], Include: include = [] } = deployment.Properties;
+    expect(exclude.includes('stats/*') || (exclude.includes('*') && include.every((p: string) => !p.startsWith('stats')))).toBe(true);
+  }
   const policies = Object.values(template.findResources('AWS::IAM::Policy'))
     .filter((policy: any) => JSON.stringify(policy).includes('PublicStatsServiceRole'));
   expect(policies).toHaveLength(1);
