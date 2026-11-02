@@ -1,5 +1,5 @@
 // Every page uses the shared dliu.com look (https://files.dliu.com/dliu.com/README.md):
-// dl.css first, the app's logo (DL Traffic's is the DL icon) top left and as favicon, the DL logo in the footer,
+// dl.css first, the app's own logo (web/logo.svg) top left and as favicon, the DL logo in the footer,
 // the shared header and footer, the ☰ menu on the dashboard pages, dl-docs.css and dl-tabs on the docs pages,
 // and style.css keeps only the dashboard's own rules on the shared --dl-* colours.
 const fs = require('fs');
@@ -21,12 +21,12 @@ test('the web folder has exactly these pages', () => {
 test.each(ALL_PAGES)('%s loads the shared stylesheet first and has the shared header and footer', (name) => {
   const page = read(`web/${name}.html`);
   const own = page.indexOf('<link rel="stylesheet" href="/style.css">');
-  expect(page).toContain(`<link rel="icon" type="image/png" href="${DL_ICON}">`);
+  expect(page).toContain('<link rel="icon" href="/logo.svg" type="image/svg+xml">');
   expect(page).toContain(DL_CSS);
   expect(own).toBeGreaterThan(page.indexOf(DL_CSS));
   expect(page).toContain('<body class="dl-page">');
   expect(page).toContain('<header class="dl-header">');
-  expect(page).toContain(`<a class="dl-brand" href="/"><img class="dl-logo" src="${DL_ICON}" alt="" width="32" height="32">DL Traffic</a>`);
+  expect(page).toContain(`<a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32">DL Traffic</a>`);
   expect(page).toMatch(/<nav (id="dl-menu" )?class="dl-nav( dl-nav-collapsible)?" aria-label="Site">/);
   expect(page).toMatch(/<main class="dl-main[" ]/);
   expect(page).toContain(`<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a>`);
@@ -89,7 +89,7 @@ test('the scripts use the shared classes for buttons, tables, cards and tabs', (
 test('the sign-in error page uses the shared header and stylesheet', () => {
   const source = read('lambda/dashboard/index.js');
   expect(source).toContain(DL_CSS);
-  expect(source).toContain('<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="${DL_ICON}" alt="" width="32" height="32">DL Traffic</a>');
+  expect(source).toContain('<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32">DL Traffic</a>');
   expect(source).toContain('<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com">');
 });
 
@@ -98,4 +98,10 @@ test('the read-more cards use the shared dl-docs-card classes', () => {
   expect(diagram).toContain("el('div', 'dl-docs-cards')");
   expect(diagram).toContain("el('a', 'dl-docs-card')");
   expect(diagram).not.toContain('about-card');
+});
+
+test('the app logo is the white bar chart on the DL blue', () => {
+  const logo = read('web/logo.svg');
+  expect(logo).toContain('<rect width="32" height="32" rx="8" fill="#209cee"/>');
+  expect(logo).not.toMatch(/<script|href=/);
 });
