@@ -85,7 +85,8 @@ export const V2_PREFIX = 'raw-v2';
 
 export interface TrafficMonitorStackProps extends StackProps {
   /** Sites: key is the log prefix (raw/<key>/) and Athena partition; host is shown on the dashboard. */
-  sites: { key: string; host: string }[];
+  /** private: left out of the public figures guests see (signed-in use is unchanged). */
+  sites: { key: string; host: string; private?: boolean }[];
   /** Subdomain for the dashboard, under the MainDomain export. */
   dashboardSubdomain?: string;
   /** Raw log retention. */
@@ -591,6 +592,7 @@ export class TrafficMonitorStack extends Stack {
       description: 'Writes the public traffic totals (no IPs or visitor IDs) to the dashboard bucket',
       environment: {
         SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
+        PRIVATE_SITES: props.sites.filter((s) => s.private).map((s) => s.key).join(','),
         GLUE_DATABASE,
         GLUE_TABLE,
         GLUE_ARCHIVE_TABLE,

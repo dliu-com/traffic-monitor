@@ -4,7 +4,8 @@
 // dashboard shows to static files (stats/<range>.json in the dashboard bucket). Visitors who are not
 // signed in only ever read those files, so they can never start an Athena query.
 // The files hold totals only, per site, country and hour/day. No IPs, visitor IDs, pages, referrers,
-// user agents, cities or networks.
+// user agents, cities or networks. Private sites (PRIVATE_SITES, from "private": true in config/sites.json)
+// are left out completely: no card, no rows, and not counted in the all-site totals.
 const { runQuery } = require('./athena');
 const { base, isoDay, settings } = require('./queries');
 
@@ -39,14 +40,21 @@ function metrics(humans) {
   ];
 }
 
+function privateSites(env = process.env) {
+  const keys = String(env.PRIVATE_SITES || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!keys.every((key) => /^[a-z0-9-]+$/.test(key))) throw new Error('Invalid PRIVATE_SITES');
+  return keys;
+}
+
 // One query per range. GROUPING SETS give every combination of site / country / time bucket the
 // public pages ask for, with and without bots, in a single pass over the logs.
 function statsQuery(window, env = process.env) {
   const filters = { site: 'all', country: null, bots: 'include', ...window };
   const unit = filters.unit === 'hour' ? 'hour' : 'day';
+  const hidden = privateSites(env);
   return `${base(filters, env, { cities: false })}, g AS (
     SELECT site, coalesce(country, 'unknown') AS cc, ${TS(`date_trunc('${unit}', ts)`)} AS bucket, ts, visitor, ip, status, is_page, is_bot
-    FROM v
+    FROM v${hidden.length ? `\n    WHERE site NOT IN (${hidden.map((key) => `'${key}'`).join(', ')})` : ''}
   )
 SELECT site, cc AS country, bucket,
   ${[...metrics(false), ...metrics(true)].join(',\n  ')}
@@ -57,6 +65,7 @@ GROUP BY GROUPING SETS ((site, cc, bucket), (site, bucket), (cc, bucket), (bucke
 // Athena rows -> the public file. Only the listed columns are copied, so nothing else can leak.
 // Last-visit times are kept only on whole-period rows (the site cards), not per hour or day.
 function toFile(range, window, rows, now, env = process.env) {
+  const hidden = privateSites(env);
   const cell = (row, column) => {
     const value = row[column];
     if (column.endsWith('last_visit') && row.bucket != null) return null;
@@ -68,9 +77,9 @@ function toFile(range, window, rows, now, env = process.env) {
     range,
     generated: new Date(now).toISOString(),
     filters: { range, ...window },
-    sites: settings(env).siteHosts,
+    sites: Object.fromEntries(Object.entries(settings(env).siteHosts).filter(([key]) => !hidden.includes(key))),
     columns: COLUMNS,
-    rows: rows.map((row) => COLUMNS.map((column) => cell(row, column))),
+    rows: rows.filter((row) => !hidden.includes(row.site)).map((row) => COLUMNS.map((column) => cell(row, column))),
   };
 }
 

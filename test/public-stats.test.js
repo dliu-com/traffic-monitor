@@ -29,6 +29,22 @@ test('one query gives every site/country/bucket combination, with and without bo
   expect(stats.statsQuery(stats.RANGES['90d'](NOW), env)).toContain("date_trunc('day', ts)");
 });
 
+test('private sites are left out of the query, the totals and the site list', () => {
+  const priv = { ...env, SITES: 'root=dliu.com,cyy=cyy.dliu.com,jh=jh.dliu.com', PRIVATE_SITES: 'cyy,jh' };
+  const window = stats.RANGES['7d'](NOW);
+  expect(stats.statsQuery(window, priv)).toContain("FROM v\n    WHERE site NOT IN ('cyy', 'jh')");
+  expect(stats.statsQuery(window, env)).not.toContain('NOT IN');
+  const rows = [
+    { site: 'root', country: null, bucket: null, requests: '5' },
+    { site: 'cyy', country: null, bucket: null, requests: '7' },
+  ];
+  const file = stats.toFile('7d', window, rows, NOW, priv);
+  expect(file.sites).toEqual({ root: 'dliu.com' });
+  expect(file.rows.map((r) => r[0])).toEqual(['root']);
+  expect(JSON.stringify(file)).not.toMatch(/cyy|jh\./);
+  expect(() => stats.statsQuery(window, { ...env, PRIVATE_SITES: "x') OR (1=1" })).toThrow(/PRIVATE_SITES/);
+});
+
 test('the public file copies only allowlisted totals', () => {
   const window = stats.RANGES['7d'](NOW);
   const rows = [

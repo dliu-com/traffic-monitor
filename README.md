@@ -89,6 +89,8 @@ Renew the client secret before it expires and re-run `make set-secrets`.
 1. Add the site's key and host to `config/sites.json`, its CloudFront distribution ID to the gitignored
    `config/distributions.local.json` (format: `config/distributions.example.json`), and run `make deploy`;
    this creates its log delivery to `raw-v2/<site-key>/`.
+   Add `"private": true` to keep the site out of the public figures guests see (no card, and not counted in the
+   totals); signed-in use is unchanged.
 2. In the site's CDK stack (same account/region), attach the visitor function and the city policy, and turn on
    cookie logging (without a legacy log bucket):
 

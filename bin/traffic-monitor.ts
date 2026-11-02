@@ -23,7 +23,7 @@ const app = new App();
 const tags = { service: 'traffic-monitor', Project: 'traffic.dliu.com' };
 for (const [key, value] of Object.entries(tags)) Tags.of(app).add(key, value);
 const monitor = new TrafficMonitorStack(app, 'TrafficMonitor', {
-  sites: sites.map(({ key, host }) => ({ key, host })),
+  sites: sites.map((s) => ({ key: s.key, host: s.host, private: 'private' in s && s.private === true })),
   env: { account, region },
   crossRegionReferences: true,
 });
