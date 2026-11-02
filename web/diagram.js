@@ -151,12 +151,12 @@ export function table(headers, rows) {
 
 // Cards linking to other info pages: [href, icon, title, line, key fact].
 export function cards(items) {
-  const grid = el('div', 'about-cards');
+  const grid = el('div', 'dl-docs-cards');
   for (const [href, name, title, line, key] of items) {
-    const card = el('a', 'about-card');
+    const card = el('a', 'dl-docs-card');
     card.href = href;
-    const body = el('span', 'about-card-text');
-    body.append(el('strong', '', title), el('span', 'about-card-line', line), el('span', 'about-card-key', key));
+    const body = el('span', 'dl-docs-card-text');
+    body.append(el('strong', '', title), el('span', 'dl-docs-card-line', line), el('span', 'dl-docs-card-key', key));
     card.append(icon(name), body);
     grid.append(card);
   }

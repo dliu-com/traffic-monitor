@@ -69,6 +69,7 @@ test('the dashboard has no docs stylesheet or palette of its own, and no dark mo
   expect(fs.existsSync(path.join(__dirname, '..', 'web/about.css'))).toBe(false);
   const css = read('web/style.css');
   expect(css).not.toMatch(/^\s*header\b|\.brand|^\s*button|\.button\b|\.ms-signin|--accent:|prefers-color-scheme|^\s*:root/m);
+  expect(css).not.toMatch(/about-card|dl-docs-card|\.status\.fixed/);
   expect(css).not.toMatch(/var\(--(bg|card|panel|line|text|muted|accent|accent-soft|danger|ok|radius)\)/);
 });
 
@@ -90,4 +91,11 @@ test('the sign-in error page uses the shared header and stylesheet', () => {
   expect(source).toContain(DL_CSS);
   expect(source).toContain('<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="${DL_ICON}" alt="" width="32" height="32">DL Traffic</a>');
   expect(source).toContain('<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com">');
+});
+
+test('the read-more cards use the shared dl-docs-card classes', () => {
+  const diagram = read('web/diagram.js');
+  expect(diagram).toContain("el('div', 'dl-docs-cards')");
+  expect(diagram).toContain("el('a', 'dl-docs-card')");
+  expect(diagram).not.toContain('about-card');
 });
