@@ -30,7 +30,7 @@ const GOOD: Query = { pv: 'abc123def', n: '2', h: 'blog.example.com', p: '%2F202
 const ORIGIN = { origin: 'https://blog.example.com' };
 
 // Runs the page script against a fake browser in which the traffic site is down.
-function runScript(body: string) {
+function runScript(body: string, performance?: unknown) {
   const listeners: Record<string, Array<(e?: unknown) => void>> = {};
   const timers: Array<() => void> = [];
   const frames: Array<() => void> = [];
@@ -52,6 +52,7 @@ function runScript(body: string) {
   };
   const window = {
     addEventListener: on,
+    performance,
     innerHeight: 800,
     requestAnimationFrame: (fn: () => void) => frames.push(fn),
     fetch: (url: string) => { sent.push(url); const p = Promise.reject(new Error('down')); p.catch(() => undefined); return { catch: (f: (e: unknown) => void) => p.catch(f) }; },
@@ -84,6 +85,18 @@ describe('page-events CloudFront function', () => {
     expect(page.sent.length).toBeGreaterThan(0);
     expect(page.sent[0]).toContain('&p=%2Fa&');
     expect(page.rejections).toEqual([]);
+  });
+
+  test('the first view counts from when the page started loading, not when the script arrived', async () => {
+    const { handler } = load();
+    const performance = { now: () => 4200, getEntriesByType: () => [{ activationStart: 0 }] };
+    const page = runScript(handler(request('/t/s.js', {}, {}, {}, 'GET')).body, performance);
+    for (const fn of page.listeners.scroll) fn();
+    page.frames[0](); // the fake page's first layout read fails on purpose
+    for (const fn of page.listeners.pagehide) fn();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    page.done();
+    expect(page.sent[0]).toMatch(/&t=4&/);
   });
 
   test('fits within the CloudFront Functions size limit', () => {

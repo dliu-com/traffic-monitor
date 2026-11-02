@@ -348,6 +348,22 @@ test('public statistics: scheduled writer limited to stats/* and kept by deploys
   expect(JSON.stringify(statements)).not.toContain('ssm:');
 });
 
+test('stats/ is cleared by its writer with invalidation on the dashboard distribution only; no bucket events', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'public-stats.update',
+    Environment: { Variables: Match.objectLike({ DISTRIBUTION_ID: { Ref: Match.stringLikeRegexp('^DashboardDistribution') } }) },
+  });
+  const statements: any[] = Object.values(template.findResources('AWS::IAM::Policy'))
+    .filter((policy: any) => JSON.stringify(policy).includes('PublicStatsServiceRole'))
+    .flatMap((p: any) => p.Properties.PolicyDocument.Statement);
+  const invalidate = statements.filter((s) => [s.Action].flat().includes('cloudfront:CreateInvalidation'));
+  expect(invalidate).toHaveLength(1);
+  expect(JSON.stringify(invalidate[0].Resource)).toContain('DashboardDistribution');
+  template.resourceCountIs('AWS::SQS::Queue', 0);
+  const notifications = Object.values(template.findResources('Custom::S3BucketNotifications')) as any[];
+  expect(notifications.filter((n) => n.Properties.NotificationConfiguration.EventBridgeConfiguration)).toHaveLength(0);
+});
+
 test('monthly log archive table: one partition per month, site and dt as columns, kept as long as logs', () => {
   template.hasResourceProperties('AWS::Glue::Table', {
     TableInput: Match.objectLike({

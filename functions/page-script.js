@@ -3,6 +3,7 @@
 // the load time and the number of script errors. It sets no cookies and stores nothing: the dl_vid cookie the
 // visitor function already set is sent with the report. Reports go out after 10 s, 30 s, 1, 2, 5 and 10 minutes
 // of reading and whenever the page is hidden, each with the totals so far; the dashboard keeps the latest.
+// The first view counts from when the page started loading (as GA4 does), not from when this script arrived.
 // The page comes first: every callback swallows its own errors, nothing waits for a report, and scrolling
 // is measured at most once per frame. If traffic.<root> is down, the page behaves as if the script was absent.
 (function () {
@@ -24,9 +25,18 @@
       };
     };
 
-    var newView = function () {
+    // When the page started loading: navigation start, or when a prerendered page was shown.
+    var pageStart = function () {
+      var p = w.performance;
+      if (!p || !p.now) return Date.now();
+      var nav = p.getEntriesByType ? p.getEntriesByType('navigation')[0] : null;
+      var activated = nav && nav.activationStart > 0 ? nav.activationStart : 0;
+      return Math.min(Date.now(), Date.now() - p.now() + activated);
+    };
+
+    var newView = function (first) {
       view = { id: (Math.random().toString(36).slice(2) + '0000000000').slice(0, 10), path: location.pathname, seq: 0, shown: 0, total: 0, scroll: 0, mark: 0 };
-      if (d.visibilityState === 'visible') view.shown = Date.now();
+      if (d.visibilityState === 'visible') view.shown = first ? pageStart() : Date.now();
     };
 
     var seconds = function () {
@@ -42,7 +52,8 @@
     };
 
     var loadTime = function () {
-      var nav = w.performance && performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+      var p = w.performance;
+      var nav = p && p.getEntriesByType ? p.getEntriesByType('navigation')[0] : null;
       var end = nav ? nav.loadEventEnd || nav.domContentLoadedEventEnd : 0;
       return end > 0 ? Math.round(end) : '';
     };
@@ -80,7 +91,7 @@
       newView();
     };
 
-    newView();
+    newView(1);
     d.addEventListener('visibilitychange', safe(function () {
       if (d.visibilityState === 'visible') {
         if (!view.shown) view.shown = Date.now();

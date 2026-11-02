@@ -128,6 +128,34 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 <script src="https://traffic.dliu.com/t/s.js" defer></script>
 ```
 
+## Caching and clearing (traffic.dliu.com)
+
+The dashboard distribution uses every edge location and HTTP/3. What CloudFront keeps, and how a change reaches visitors:
+
+| Files | Browser | CloudFront | Cleared by |
+| --- | --- | --- | --- |
+| HTML pages | `no-cache` (asks every time) | revalidated on each request | — |
+| JS, CSS, images (`web/`) | `max-age=0, must-revalidate` | 1 day (`s-maxage=86400`) | `make deploy` (`/*`) |
+| `stats/*.json` (public totals) | 5 minutes (`max-age=300`) | 1 day (`s-maxage=86400`) | automatic clearing (below) |
+| `/api/*`, `/auth/*` | not cached | not cached | — |
+| `/t/*` (page script, events) | answered by a CloudFront Function | — | — |
+
+Automatic clearing is on for **`stats/` in the dashboard bucket only**, the one prefix the app rewrites outside a
+deploy. Its only writer, the `PublicStats` Lambda (daily at 02:00 UTC, after `make deploy` and with
+`make public-stats`), creates one `/stats/*` invalidation after writing all the files: one path a run, about 30 a
+month of the 1,000 free paths shared by all sites. It may only create invalidations on this distribution. If the
+invalidation fails the run fails (the schedule retries once) and CloudFront keeps the old copy for at most a day.
+S3 event notifications (EventBridge, SQS) were tried and dropped: an idle SQS poller makes hundreds of thousands of
+requests a month, one event per file cost three paths a run, and with a single writer they add nothing. Editing or
+deleting `stats/` files by hand is not cleared; run `make public-stats` instead.
+
+Not cleared automatically, and why:
+
+- Web files (HTML, JS, CSS): change only with a deploy, which already clears `/*`.
+- Log bucket (`raw/`, `raw-v2/`, `logs/`, `archive/`, `events/`, bot and reputation data): not served by CloudFront,
+  and new files are added constantly; a file that was never cached needs no clearing.
+- `/api/*`, `/auth/*` and `/t/*`: never cached.
+
 ## Notes
 
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID

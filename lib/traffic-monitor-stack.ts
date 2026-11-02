@@ -710,6 +710,11 @@ export class TrafficMonitorStack extends Stack {
     });
     this.dashboardDistributionId = distribution.distributionId;
 
+    // Automatic clearing, for stats/ only: PublicStats is its only writer and clears /stats/* (one path) after each
+    // refresh, about 30 paths a month. Web files are cleared by the deploy (/*); the log bucket is not served.
+    publicStats.addEnvironment('DISTRIBUTION_ID', distribution.distributionId);
+    distribution.grantCreateInvalidation(publicStats);
+
     // New function URLs require both invoke permissions. CDK adds InvokeFunctionUrl.
     dashboardHandler.addPermission('CloudFrontInvokeFunction', {
       principal: new iam.ServicePrincipal('cloudfront.amazonaws.com'),

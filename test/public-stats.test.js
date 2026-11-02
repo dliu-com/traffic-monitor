@@ -68,7 +68,7 @@ test('update writes each requested range to stats/<range>.json with a short cach
   const results = await stats.update({ ranges: ['24h', 'nope', '7d', '30d'] }, { s3, runQuery, now: () => NOW });
   expect(results.map((r) => r.range)).toEqual(['7d', '30d']);
   expect(puts.map((p) => p.Key).sort()).toEqual(['stats/30d.json', 'stats/7d.json']);
-  expect(puts[0]).toMatchObject({ Bucket: 'dashboard-bucket', ContentType: 'application/json; charset=utf-8', CacheControl: 'public, max-age=300' });
+  expect(puts[0]).toMatchObject({ Bucket: 'dashboard-bucket', ContentType: 'application/json; charset=utf-8', CacheControl: 'public, max-age=300, s-maxage=86400' });
   expect(JSON.parse(puts[0].Body).rows).toHaveLength(1);
   expect(queries[0].options.maxRows).toBe(100000);
 });
@@ -79,4 +79,34 @@ test('update refreshes every range by default and rejects unknown ones', async (
   await stats.update({}, deps);
   expect(puts.sort()).toEqual(['stats/30d.json', 'stats/7d.json', 'stats/90d.json']);
   await expect(stats.update({ ranges: ['1y'] }, deps)).rejects.toThrow('No known ranges');
+});
+
+test('update clears /stats/* at CloudFront once, after all files are written', async () => {
+  const order = [];
+  class CreateInvalidationCommand { constructor(input) { this.input = input; } }
+  const deps = {
+    s3: { send: async (c) => { order.push(c.input.Key); return {}; } },
+    runQuery: async () => [],
+    now: () => NOW,
+    cloudfrontSdk: { CreateInvalidationCommand },
+    cloudfront: { send: async (c) => { order.push(c.input); return {}; } },
+  };
+  process.env.DISTRIBUTION_ID = 'EXAMPLE';
+  try {
+    await stats.update({}, deps);
+  } finally {
+    delete process.env.DISTRIBUTION_ID;
+  }
+  expect(order).toHaveLength(4);
+  expect(order[3]).toEqual({
+    DistributionId: 'EXAMPLE',
+    InvalidationBatch: { CallerReference: `stats-${NOW}`, Paths: { Quantity: 1, Items: ['/stats/*'] } },
+  });
+  deps.cloudfront.send = async () => { throw new Error('throttled'); };
+  process.env.DISTRIBUTION_ID = 'EXAMPLE';
+  try {
+    await expect(stats.update({}, deps)).rejects.toThrow('throttled');
+  } finally {
+    delete process.env.DISTRIBUTION_ID;
+  }
 });

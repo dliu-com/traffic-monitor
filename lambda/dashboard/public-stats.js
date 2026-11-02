@@ -103,8 +103,8 @@ async function writeRange(range, deps, now) {
     Key: `stats/${range}.json`,
     Body: body,
     ContentType: 'application/json; charset=utf-8',
-    // CloudFront and browsers may keep a copy for 5 minutes.
-    CacheControl: 'public, max-age=300',
+    // Browsers may keep a copy for 5 minutes, CloudFront for a day: update() clears it after each refresh.
+    CacheControl: 'public, max-age=300, s-maxage=86400',
   }));
   return { range, rows: rows.length, bytes: body.length };
 }
@@ -117,7 +117,22 @@ async function update(event = {}, deps = {}) {
   if (!ranges.length) throw new Error('No known ranges to refresh');
   const results = await Promise.all(ranges.map((range) => writeRange(range, deps, now)));
   console.log(JSON.stringify({ message: 'Public statistics updated', results }));
+  await clearEdgeCopies(now, deps);
   return results;
+}
+
+// One wildcard path for all files written together (the free allowance counts paths, not files). A failure is
+// thrown, so the scheduled run is retried and the error shows; until then CloudFront serves the old copy.
+async function clearEdgeCopies(now, deps) {
+  const distributionId = process.env.DISTRIBUTION_ID;
+  if (!distributionId) return;
+  const { CloudFrontClient, CreateInvalidationCommand } = deps.cloudfrontSdk || require('@aws-sdk/client-cloudfront');
+  const client = deps.cloudfront || new CloudFrontClient({ region: 'us-east-1' });
+  await client.send(new CreateInvalidationCommand({
+    DistributionId: distributionId,
+    InvalidationBatch: { CallerReference: `stats-${now}`, Paths: { Quantity: 1, Items: ['/stats/*'] } },
+  }));
+  console.log(JSON.stringify({ message: 'Cleared CloudFront', paths: ['/stats/*'] }));
 }
 
 module.exports = { COLUMNS, RANGES, statsQuery, toFile, update };
