@@ -489,6 +489,11 @@ SELECT site, count(*) AS requests, count_if(is_page) AS pageviews,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen
 FROM v WHERE ${match}
 GROUP BY site ORDER BY max(ts) DESC`,
+    // From the page script: each page view this visitor ID read, with the totals over the whole period.
+    reading: `${readingCte({ ...filters, site: 'all', country: null, bots: 'include' }, match, env)}
+SELECT ${TS('ts')} AS time, site, path, seconds, scroll, screen, ip, country,
+  count(*) OVER () AS total_views, sum(seconds) OVER () AS total_seconds
+FROM x ORDER BY ts DESC LIMIT ${PAGE_MAX}`,
   };
 }
 
@@ -514,10 +519,11 @@ FROM v GROUP BY site ORDER BY requests DESC, site`,
   };
 }
 
-// Page script reports (functions/page-events.js) for one page, one row per page view with its latest totals.
+// Page script reports (functions/page-events.js) matching `match` (one page, or one visitor ID), one row per
+// page view with its latest totals.
 // The log line is 1.<view>.<n>.<site>.<dl_vid>.<seconds>.<scroll %>.<screen>.<load ms>.<errors>.<hex path>.
 // Bots are judged as for requests: by user agent, and by the daily verdict for the reporting IP.
-function readingCte(filters, pagePath, env = process.env) {
+function readingCte(filters, match, env = process.env) {
   const { database, eventsTable, botsTable } = settings(env);
   const day = (value) => value.replace(/-/g, '/');
   const window = [];
@@ -544,13 +550,14 @@ function readingCte(filters, pagePath, env = process.env) {
   WHERE cardinality(f) = 11 AND regexp_like(f[2], '^[a-z0-9]{6,16}$') AND regexp_like(f[6], '^[0-9]{1,5}$')
     AND regexp_like(f[7], '^[0-9]{1,3}$') AND regexp_like(f[10], '^[0-9]{1,3}$') AND regexp_like(f[11], '^([0-9a-f]{2})+$')
 ), pv AS (
-  SELECT view_id, min(ts) AS ts, max(seconds) AS seconds, max(scroll) AS scroll, max(errors) AS errors,
+  SELECT view_id, min(ts) AS ts, arbitrary(site) AS site, arbitrary(path) AS path,
+    max(seconds) AS seconds, max(scroll) AS scroll, max(errors) AS errors,
     max(visitor_id) AS visitor_id, arbitrary(ip) AS ip, arbitrary(ua) AS ua, arbitrary(country) AS country,
     arbitrary(screen) AS screen, max(load_ms) AS load_ms,
     CASE WHEN bool_or(coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}')) THEN 'agent'
       ELSE max(flagged) END AS bot_reason
   FROM r
-  WHERE site = '${filters.site}' AND ${requirePath(pagePath)}${country}
+  WHERE ${match}${country}
   GROUP BY view_id
 ), rv AS (
   SELECT *, coalesce(visitor_id, concat('ip:', ip)) AS visitor FROM pv${window.length ? `\n  WHERE ${window.join(' AND ')}` : ''}
@@ -571,6 +578,7 @@ function pageQueries(filters, pagePath, env = process.env) {
   const match = `is_page AND ${requirePath(pagePath)}`;
   const cte = base(filters, env);
   const unit = ['minute', 'hour', 'day'].includes(filters.unit) ? filters.unit : 'day';
+  const reading = readingCte(filters, `site = '${filters.site}' AND ${requirePath(pagePath)}`, env);
   return {
     summary: `${cte}
 SELECT count(*) AS views, count(DISTINCT visitor) AS visitors, count(DISTINCT ip) AS ips,
@@ -585,18 +593,18 @@ SELECT source, count(*) AS visitors, sum(views) AS views FROM (
   SELECT visitor, min_by(source, ts) AS source, count(*) AS views FROM v WHERE ${match} GROUP BY visitor
 ) GROUP BY source ORDER BY visitors DESC, source`,
     // From the page script: how long the page was read and how far it was scrolled.
-    reading: `${readingCte(filters, pagePath, env)}
+    reading: `${reading}
 SELECT count(*) AS views, count(DISTINCT visitor) AS visitors,
   approx_percentile(seconds, 0.5) AS median_seconds, round(avg(seconds)) AS average_seconds,
   approx_percentile(scroll, 0.5) AS median_scroll, count_if(scroll >= 90) AS read_to_end,
   approx_percentile(load_ms, 0.5) AS median_load_ms, count_if(errors > 0) AS with_errors
 FROM x`,
-    reading_buckets: `${readingCte(filters, pagePath, env)}
+    reading_buckets: `${reading}
 SELECT 'time' AS kind, ${SECONDS_BUCKET} AS bucket, count(*) AS views FROM x GROUP BY 2
 UNION ALL
 SELECT 'scroll', ${SCROLL_BUCKET}, count(*) FROM x GROUP BY 2
 ORDER BY 1, 2`,
-    reading_views: `${readingCte(filters, pagePath, env)}
+    reading_views: `${reading}
 SELECT ${TS('ts')} AS time, visitor, ip, country, seconds, scroll, screen, load_ms, errors, ua, bot_reason,
   bot_reason IS NOT NULL AS is_bot
 FROM x ORDER BY ts DESC LIMIT ${PAGE_MAX}`,

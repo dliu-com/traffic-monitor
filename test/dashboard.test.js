@@ -192,7 +192,7 @@ describe('sql', () => {
   test('visitor queries and lists cover every site, include bots and validate the ID', () => {
     const vid = 'abc123def456';
     const queries = visitorQueries(filters, vid, env);
-    expect(Object.keys(queries)).toEqual(['summary', 'sites']);
+    expect(Object.keys(queries)).toEqual(['summary', 'sites', 'reading']);
     for (const sql of Object.values(queries)) {
       expect(sql).toContain(`visitor_id = '${vid}'`);
       expect(sql).not.toContain("AND site = 'cyy'");
@@ -393,6 +393,17 @@ describe('page details', () => {
     expect(pageQueries({ ...filters, country: 'CN' }, '/a', env).reading).toContain("AND country = 'CN'");
   });
 
+  test('the visitor reading query lists the page views one visitor ID read, on every site', () => {
+    const sql = visitorQueries({ ...filters, startDay: '2026-11-01', endDay: '2026-11-02' }, 'abc123def456', env).reading;
+    expect(sql).toContain(`FROM "traffic"."page_events"`);
+    expect(sql).toContain("WHERE visitor_id = 'abc123def456'\n  GROUP BY view_id");
+    expect(sql).not.toContain("site = 'cyy'");
+    expect(sql).not.toContain('WHERE bot_reason');
+    expect(sql).toContain('arbitrary(site) AS site, arbitrary(path) AS path');
+    expect(sql).toContain('sum(seconds) OVER () AS total_seconds');
+    expect(sql).toContain('ORDER BY ts DESC LIMIT 100');
+  });
+
   test('page path must be a logged path', () => {
     for (const path of [undefined, '', 'game/1', 'https://cyy.dliu.com/', '/a\nb', '/a\u0000', `/${'x'.repeat(1001)}`]) {
       expect(() => listQuery(filters, { list: 'page_ips', path }, env)).toThrow(BadRequest);
@@ -544,7 +555,7 @@ describe('handler', () => {
     queries.length = 0;
     const response = await request('/api/visitor', { ...signedIn, queryStringParameters: { visitor: 'abc123def456', site: 'cyy', range: '7d' } });
     expect(response.statusCode).toBe(200);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(3);
     expect(JSON.parse(response.body).filters.site).toBe('all');
     expect((await request('/api/visitor', { ...signedIn, queryStringParameters: { visitor: "x'" } })).statusCode).toBe(400);
     expect((await request('/api/visitor', { queryStringParameters: { visitor: 'abc123def456' } })).statusCode).toBe(401);

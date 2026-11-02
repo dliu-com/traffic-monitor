@@ -69,6 +69,31 @@ const pages = pagedTable({
 pagesCard.head.append(pages.search);
 pagesCard.body.append(pages.node);
 
+// From the page script, on sites that load it: how long each page view was on screen.
+const seconds = (n) => (!Number.isFinite(n) ? '' : n < 60 ? `${n} s` : n < 3600 ? `${Math.floor(n / 60)} min ${n % 60} s`
+  : `${Math.floor(n / 3600)} h ${Math.floor((n % 3600) / 60)} min`);
+const readingCard = card('Reading', { subtitle: 'page views reported by the page script, newest first' });
+const readingNote = el('p', { class: 'muted' });
+const reading = staticTable({
+  empty: 'No reports in this period (only sites that load the page script report reading)',
+  columns: [
+    { label: 'Time', value: (r) => formatTime(r.time), cls: 'nowrap' },
+    { label: 'Site', value: (r) => siteName(r.site), cls: 'nowrap' },
+    { label: 'Page', value: (r) => r.path, href: (r) => pageDetailsLink(r.site, r.path), cls: 'wrap' },
+    { label: 'On screen', value: (r) => seconds(Number(r.seconds)), title: () => 'Time the page was visible on screen', cls: 'num nowrap' },
+    { label: 'Scrolled', value: (r) => `${r.scroll}%`, title: () => 'Furthest point scrolled to', cls: 'num' },
+    { label: 'Screen', value: (r) => screenText(r.screen), title: () => 'Screen width × height in CSS pixels, and pixel ratio', cls: 'nowrap muted' },
+    { label: 'IP address', value: (r) => r.ip, href: (r) => ipLink(r.ip), cls: 'nowrap muted' },
+  ],
+});
+readingCard.body.append(readingNote, reading.node);
+
+// 390x844x300 -> 390×844 @3x
+function screenText(value) {
+  const m = /^(\d+)x(\d+)x(\d+)$/.exec(value || '');
+  return m ? `${m[1]}×${m[2]} @${Number(m[3]) / 100}x` : '';
+}
+
 const logCard = card('Requests', { subtitle: 'newest first' });
 const log = pagedTable({
   list: 'requests',
@@ -98,6 +123,7 @@ page.append(
   summaryBox,
   el('div', { class: 'grid grid-pair' }, [sitesCard.node, ipsCard.node]),
   pagesCard.node,
+  readingCard.node,
   logCard.node,
 );
 
@@ -133,11 +159,21 @@ const loadSummary = widget(summaryBox, () => part('/api/visitor', 'summary', { v
 
 const loadSites = widget(sitesCard.node, () => part('/api/visitor', 'sites', { visitor, ...period() }), ({ rows }) => sites.set(rows));
 
+const loadReading = widget(readingCard.node, () => part('/api/visitor', 'reading', { visitor, ...period() }), ({ rows }) => {
+  const r = rows[0];
+  const views = r ? Number(r.total_views) : 0;
+  readingNote.textContent = views
+    ? `${fmt(views)} page view${views === 1 ? '' : 's'} read, ${seconds(Number(r.total_seconds))} on screen in total${views > rows.length ? ` (latest ${rows.length} shown)` : ''}.`
+    : '';
+  reading.set(rows);
+});
+
 function load() {
   home.setAttribute('href', pageLink('/'));
   setStatus('');
   loadSummary();
   loadSites();
+  loadReading();
   for (const table of [ips, pages, log]) table.load();
 }
 
