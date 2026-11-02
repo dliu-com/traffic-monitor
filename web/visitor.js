@@ -1,7 +1,7 @@
 import {
   $, botReasonText, card, countryLabel, countryName, countryShort, describeBrowser, describeDevice, el, facts, fmt,
   formatTime, hostingName, ipLink, isBot, kpis, pageDetailsLink, pagedTable, pageLink, part, period, periodBar,
-  periodText, setStatus, siteLink, siteName, start, staticTable, uaColumns, VISITOR_PATTERN, widget,
+  periodText, setStatus, siteLink, siteName, start, staticTable, uaColumns, uaTitle, VISITOR_PATTERN, widget,
 } from './dash.js';
 
 // Everything one dl_vid visitor ID did, across every site and IP address.
@@ -124,7 +124,7 @@ const loadSummary = widget(summaryBox, () => part('/api/visitor', 'summary', { v
     ['First seen', seen ? formatTime(s.first_seen) : ''],
     ['Last seen', seen ? formatTime(s.last_seen) : ''],
     ['Latest browser', describeBrowser(s.last_ua), s.last_ua],
-      ['Latest device', describeDevice(s.last_ua), s.last_ua],
+      ['Latest device', describeDevice(s.last_ua, s.last_hints), uaTitle(s.last_ua, s.last_hints)],
     ['Different browsers', seen ? fmt(s.user_agents) : ''],
     ['Errors', seen ? fmt(s.errors) : ''],
   ]));

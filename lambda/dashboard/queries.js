@@ -16,6 +16,16 @@ const COUNTRY = /^([A-Z]{2}|unknown)$/;
 // A logged city (decoded from hex UTF-8) must look like a place name: letters, digits, marks,
 // spaces and . ' ’ ( ) , -. Anything else is dropped. The apostrophe is doubled for SQL.
 const CITY = "^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$";
+// Device model and system version Chromium browsers sent as client hints, logged by the visitor function after
+// the city ("_m<hex>_v<version>"), as "<model>|<version>" (either may be empty); NULL when there are none.
+const HINTS = `CASE WHEN regexp_like(model_raw, '^[A-Za-z0-9 ._()+-]{1,40}$') OR platform_version <> ''
+        THEN concat(CASE WHEN regexp_like(model_raw, '^[A-Za-z0-9 ._()+-]{1,40}$') THEN model_raw ELSE '' END, '|', coalesce(platform_version, '')) END`;
+// How a request arrived: WeChat adds from=timeline (Moments), singlemessage (a chat) or groupmessage (a group)
+// to links shared from it, and again on each reshare, so the last one says where this reader got the link.
+// Otherwise the referrer's host, "WeChat" for WeChat with neither, or "Direct" (typed, bookmarked, an app).
+const SOURCE = `CASE element_at(regexp_extract_all(coalesce(query, ''), '(?:^|&)from=([a-z]+)', 1), -1)
+        WHEN 'timeline' THEN 'WeChat Moments' WHEN 'singlemessage' THEN 'WeChat chat' WHEN 'groupmessage' THEN 'WeChat group'
+        ELSE coalesce(url_extract_host(referrer), CASE WHEN strpos(ua, 'MicroMessenger') > 0 THEN 'WeChat' END, 'Direct') END`;
 
 const ASSET = '\\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|json|txt|xml|webmanifest|wasm)$';
 const BOT = 'bot|crawl|spider|slurp|curl|wget|python|httpclient|http-client|headless|monitor|preview|scanner|go-http|java/|okhttp|axios|node-fetch|facebookexternalhit|lighthouse';
@@ -103,7 +113,7 @@ function timeWindow(query, now) {
 // Bots are dropped (after visitor IDs are worked out) unless filters.bots is 'include'; 'only' drops the people.
 // Archived days hold people only (the merge deleted their bots), so bots=only finds nothing there.
 const LOG_FIELDS = ['date', 'time', 'c_ip', 'cs_method', 'x_host_header', 'cs_uri_stem', 'sc_status', 'cs_referrer',
-  'cs_user_agent', 'cs_cookie', 'vid_log', 'x_edge_result_type', 'sc_bytes', 'c_country', 'asn', 'site', 'dt'];
+  'cs_user_agent', 'cs_uri_query', 'cs_cookie', 'vid_log', 'x_edge_result_type', 'sc_bytes', 'c_country', 'asn', 'site', 'dt'];
 
 // Which days to read from the daily folders and which from the archive. A day can briefly be in both (between
 // the merge writing the archive file and deleting the daily files); the next merge run removes the daily copy.
@@ -173,10 +183,13 @@ function base(filters, env = process.env, { cities = true } = {}) {
       url_decode(cs_uri_stem) AS path,
       sc_status AS status,
       nullif(url_decode(cs_referrer), '-') AS referrer,
+      nullif(cs_uri_query, '-') AS query,
       url_decode(cs_user_agent) AS ua,
       regexp_extract(url_decode(cs_cookie), 'dl_vid=([a-z0-9]{8,40})', 1) AS cookie_id,
-      regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|$)', 1) AS logged_id,
-      from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})$', 1))) AS city_raw,
+      regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|_|$)', 1) AS logged_id,
+      from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})(_|$)', 1))) AS city_raw,
+      from_utf8(from_hex(regexp_extract(vid_log, '_m((?:[0-9a-f]{2}){1,40})(_|$)', 1))) AS model_raw,
+      regexp_extract(vid_log, '_v([0-9]{1,3}(\\.[0-9]{1,3}){0,3})$', 1) AS platform_version,
       x_edge_result_type AS result,
       sc_bytes AS bytes,
       nullif(c_country, '-') AS country,
@@ -188,6 +201,8 @@ function base(filters, env = process.env, { cities = true } = {}) {
     SELECT *,
       CASE WHEN regexp_like(city_raw, '${CITY}') THEN city_raw
         WHEN regexp_like(db_city, '${CITY}') THEN concat(db_city, ' (DB-IP)') END AS city,
+      ${HINTS} AS hints,
+      ${SOURCE} AS source,
       coalesce(cookie_id, CASE WHEN logged_id IS NOT NULL
         AND bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id,
       CASE WHEN coalesce(ua, '') IN ('', '-') OR regexp_like(lower(coalesce(ua, '')), '${BOT}') THEN 'agent' ELSE flagged END AS bot_reason
@@ -282,7 +297,7 @@ const LISTS = {
     sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, ${REASON}, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
+  max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, bool_and(is_bot) AS is_bot, ${REASON}, max_by(country, ts) AS country, ${LAST_CITY}, max_by(asn, ts) AS asn
 FROM v GROUP BY ip`,
     search: ['ip', 'sites', 'last_ua', 'country', 'city', 'asn'],
     order: 'last_seen DESC, ip',
@@ -324,7 +339,7 @@ GROUP BY 1`,
     return {
       // The IP and Visitor pages show everything an IP or visitor did, bots included.
       allBots: Boolean(q.ip || q.visitor),
-      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, result, is_bot, bot_reason, is_page
+      sql: `SELECT ${TS('ts')} AS time, site, ip, country, city, asn, visitor_id, method, path, status, referrer, ua, hints, result, is_bot, bot_reason, is_page
 FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
       search: ['site', 'ip', 'country', 'city', 'method', 'path', 'status', 'referrer', 'ua'],
       order: '"time" DESC, ip, path',
@@ -333,17 +348,17 @@ FROM v${conditions.length ? ` WHERE ${conditions.join(' AND ')}` : ''}`,
   // The visitors who viewed one page, newest first.
   page_visitors: (q) => ({
     sql: `SELECT visitor, max(visitor_id) AS visitor_id, count(*) AS views, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
-  max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua,
-  max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
+  max_by(country, ts) AS country, ${LAST_CITY}, ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints,
+  max_by(asn, ts) AS asn, min_by(source, ts) AS source, bool_and(is_bot) AS is_bot, ${REASON}
 FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY visitor`,
-    search: ['visitor_id', 'last_ip', 'country', 'city', 'last_ua'],
+    search: ['visitor_id', 'last_ip', 'country', 'city', 'source', 'last_ua'],
     order: 'last_seen DESC, visitor',
   }),
   // The IP addresses one page was viewed from.
   page_ips: (q) => ({
     sql: `SELECT ip, count(*) AS views, count(DISTINCT visitor) AS visitors, max_by(country, ts) AS country, ${LAST_CITY},
-  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot, ${REASON}, max_by(asn, ts) AS asn
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, bool_and(is_bot) AS is_bot, ${REASON}, max_by(asn, ts) AS asn
 FROM v WHERE is_page AND ${requirePath(q.path)}
 GROUP BY ip`,
     search: ['ip', 'country', 'city', 'last_ua'],
@@ -356,7 +371,7 @@ GROUP BY ip`,
       allSites: true,
       sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY},
+  ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, max_by(country, ts) AS country, ${LAST_CITY},
   max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
 FROM v
 WHERE NOT ${match} AND visitor_id IN (SELECT visitor_id FROM v WHERE ${match} AND visitor_id IS NOT NULL)
@@ -370,7 +385,7 @@ GROUP BY ip`,
     allSites: true,
     sql: `SELECT ip, count(*) AS requests, count_if(is_page) AS pageviews,
   array_join(array_sort(array_agg(DISTINCT site)), ',') AS sites,
-  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(country, ts) AS country, ${LAST_CITY},
+  ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen, max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, max_by(country, ts) AS country, ${LAST_CITY},
   max_by(asn, ts) AS asn, bool_and(is_bot) AS is_bot, ${REASON}
 FROM v WHERE ${requireVisitor(q.visitor)}
 GROUP BY ip`,
@@ -437,7 +452,7 @@ SELECT count(*) AS requests, count_if(is_page) AS pageviews,
   count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
   count(DISTINCT visitor_id) AS cookies,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
+  max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, bool_and(is_bot) AS is_bot,
   array_join(array_sort(array_agg(DISTINCT bot_reason) FILTER (WHERE bot_reason IS NOT NULL)), ',') AS bot_reasons,
   count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
 FROM v WHERE ${match}`,
@@ -464,7 +479,7 @@ SELECT count(*) AS requests, count_if(is_page) AS pageviews,
   max_by(country, ts) AS country, count(DISTINCT country) AS countries, ${LAST_CITY}, max_by(asn, ts) AS asn,
   count(DISTINCT site) AS sites, count(DISTINCT date(ts)) AS days, count(DISTINCT ip) AS ips, max_by(ip, ts) AS last_ip,
   ${TS('min(ts)')} AS first_seen, ${TS('max(ts)')} AS last_seen,
-  max_by(ua, ts) AS last_ua, bool_and(is_bot) AS is_bot,
+  max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints, bool_and(is_bot) AS is_bot,
   array_join(array_sort(array_agg(DISTINCT bot_reason) FILTER (WHERE bot_reason IS NOT NULL)), ',') AS bot_reasons,
   count(DISTINCT ua) AS user_agents, count_if(status >= 400) AS errors
 FROM v WHERE ${match}`,
@@ -512,6 +527,11 @@ FROM v WHERE ${match}`,
     timeseries: `${cte}
 SELECT ${TS(`date_trunc('${unit}', ts)`)} AS bucket, count(*) AS views, count(DISTINCT visitor) AS visitors
 FROM v WHERE ${match} GROUP BY 1 ORDER BY 1`,
+    // How visitors first arrived at the page (a visitor counts once, under their first view).
+    sources: `${cte}
+SELECT source, count(*) AS visitors, sum(views) AS views FROM (
+  SELECT visitor, min_by(source, ts) AS source, count(*) AS views FROM v WHERE ${match} GROUP BY visitor
+) GROUP BY source ORDER BY visitors DESC, source`,
   };
 }
 

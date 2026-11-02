@@ -376,7 +376,8 @@ describe('reads each log file once', () => {
       line({ date: '2026-10-09', time: '01:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/%2Eenv', 'cs(User-Agent)': 'curl/8.0' }),
       line({ date: '2026-10-09', time: '02:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'cs(Cookie)': 'dl_vid%3Dabcdef1234', 'c-country': 'GB' }),
       line({ date: '2026-10-09', time: '03:00:00', 'c-ip': '192.0.2.2', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'viewer-response-log-data': 'abcdef1234.4c6f6e646f6e', 'c-country': 'GB' }),
-      line({ date: '2026-10-09', time: '04:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/', 'cs(User-Agent)': 'curl/8.0', 'viewer-response-log-data': 'abcdef1234', 'c-country': 'CN' }),
+      line({ date: '2026-10-09', time: '04:00:00', 'c-ip': '192.0.2.1', 'cs-uri-stem': '/', 'cs(User-Agent)': 'curl/8.0', 'viewer-response-log-data': 'abcdef1234_m4b_v10.0', 'c-country': 'CN' }),
+      line({ date: '2026-10-09', time: '05:00:00', 'c-ip': '192.0.2.3', 'cs-uri-stem': '/', 'cs(User-Agent)': BROWSER, 'viewer-response-log-data': 'abcdef1234.4c6f6e646f6e_m4b', 'c-country': 'GB' }),
     ].join('\n')}\n`);
     state.addRows(ips, rows, new RegExp(bots.PROBE), new RegExp(bots.PAGE_FILE));
     // The last two: CloudFront gave a city (the visitor function logged <id>.<hex city>), and the latest country.
@@ -385,6 +386,7 @@ describe('reads each log file once', () => {
     expect(state.featureRows({ d: { day: '2026-10-09', ips } })).toEqual(expect.arrayContaining([
       expect.objectContaining({ ip: '192.0.2.1', has_city: false, country: 'CN' }),
       expect.objectContaining({ ip: '192.0.2.2', has_city: true, country: 'GB' }),
+      expect.objectContaining({ ip: '192.0.2.3', has_city: true, country: 'GB' }),
     ]));
   });
 });

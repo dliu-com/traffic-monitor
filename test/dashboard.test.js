@@ -111,7 +111,7 @@ describe('sql', () => {
   test('visitor id is the cookie, or the logged id once the browser sent it back', () => {
     const sql = overviewQueries(filters, env).summary;
     expect(sql).toContain("regexp_extract(url_decode(cs_cookie), 'dl_vid=([a-z0-9]{8,40})', 1) AS cookie_id");
-    expect(sql).toContain("regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|$)', 1) AS logged_id");
+    expect(sql).toContain("regexp_extract(vid_log, '^([a-z0-9]{8,40})(\\.|_|$)', 1) AS logged_id");
     expect(sql).toContain('bool_or(cookie_id IS NOT NULL) OVER (PARTITION BY coalesce(logged_id, ip)) THEN logged_id END) AS visitor_id');
     expect(sql).toMatch(/FROM r\n    WHERE ts >= [^\n]+\n  \), v AS/);
     expect(sql).toContain("CASE WHEN regexp_like(asn, '^[0-9]{1,10}$') THEN asn END AS asn");
@@ -120,13 +120,35 @@ describe('sql', () => {
 
   test('city comes from the logged data, well-formed and validated', () => {
     const sql = overviewQueries(filters, env).summary;
-    expect(sql).toContain("from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})$', 1))) AS city_raw");
+    expect(sql).toContain("from_utf8(from_hex(regexp_extract(vid_log, '^[a-z0-9]{8,40}\\.((?:[0-9a-f]{2}){1,240})(_|$)', 1))) AS city_raw");
     expect(sql).toContain("CASE WHEN regexp_like(city_raw, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN city_raw\n        WHEN regexp_like(db_city, '^[\\p{L}\\p{M}\\p{N} .''’(),-]{1,60}$') THEN concat(db_city, ' (DB-IP)') END AS city");
     const last = 'max_by(city, ts) FILTER (WHERE city IS NOT NULL) AS city';
     expect(ipQueries(filters, '203.0.113.7', env).summary).toContain(last);
     for (const list of ['ips', 'related']) expect(listQuery(filters, { list, ip: '203.0.113.7' }, env).sql).toContain(last);
     expect(listQuery(filters, { list: 'requests' }, env).sql).toContain('ip, country, city, asn, visitor_id');
     expect(listQuery(filters, { list: 'ips', q: 'São Paulo' }, env).sql).toContain("coalesce(cast(city AS varchar), '')");
+  });
+
+  test('client hints (device model, system version) come from the logged data, validated', () => {
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).toContain("from_utf8(from_hex(regexp_extract(vid_log, '_m((?:[0-9a-f]{2}){1,40})(_|$)', 1))) AS model_raw");
+    expect(sql).toContain("regexp_extract(vid_log, '_v([0-9]{1,3}(\\.[0-9]{1,3}){0,3})$', 1) AS platform_version");
+    expect(sql).toContain("THEN concat(CASE WHEN regexp_like(model_raw, '^[A-Za-z0-9 ._()+-]{1,40}$') THEN model_raw ELSE '' END, '|', coalesce(platform_version, '')) END AS hints");
+    expect(ipQueries(filters, '203.0.113.7', env).summary).toContain('max_by(ua, ts) AS last_ua, max_by(hints, ts) AS last_hints');
+    expect(listQuery(filters, { list: 'ips' }, env).sql).toContain('max_by(hints, ts) AS last_hints');
+    expect(listQuery(filters, { list: 'requests' }, env).sql).toContain('referrer, ua, hints, result');
+  });
+
+  test('works out how a request arrived: WeChat share tag, referrer host, WeChat, or direct', () => {
+    const sql = overviewQueries(filters, env).summary;
+    expect(sql).toContain("nullif(cs_uri_query, '-') AS query");
+    expect(sql).toContain("element_at(regexp_extract_all(coalesce(query, ''), '(?:^|&)from=([a-z]+)', 1), -1)");
+    expect(sql).toContain("WHEN 'timeline' THEN 'WeChat Moments' WHEN 'singlemessage' THEN 'WeChat chat' WHEN 'groupmessage' THEN 'WeChat group'");
+    expect(sql).toContain("ELSE coalesce(url_extract_host(referrer), CASE WHEN strpos(ua, 'MicroMessenger') > 0 THEN 'WeChat' END, 'Direct') END AS source");
+    const page = pageQueries({ ...filters, site: 'blog' }, '/2026103100', env);
+    expect(page.sources).toContain('SELECT visitor, min_by(source, ts) AS source, count(*) AS views FROM v WHERE is_page AND');
+    expect(page.sources).toContain('GROUP BY source ORDER BY visitors DESC, source');
+    expect(listQuery({ ...filters, site: 'blog' }, { list: 'page_visitors', path: '/2026103100' }, env).sql).toContain('min_by(source, ts) AS source');
   });
 
   test('ip summary and ip list include the network (ASN)', () => {
@@ -505,7 +527,7 @@ describe('handler', () => {
     queries.length = 0;
     const response = await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: '/game/1', range: '7d' } });
     expect(response.statusCode).toBe(200);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(3);
     expect(queries[0]).toContain("path = '/game/1'");
     expect((await request('/api/page', { ...signedIn, queryStringParameters: { site: 'cyy', path: 'nope' } })).statusCode).toBe(400);
     expect((await request('/api/page', { ...signedIn, queryStringParameters: { path: '/a' } })).statusCode).toBe(400);

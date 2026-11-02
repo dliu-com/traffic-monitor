@@ -46,6 +46,20 @@ describe('user agent', () => {
     expect(describeDevice(ua)).toBe(device);
   });
 
+  test('client hints give the Android model and real system versions', () => {
+    const chromeAndroid = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+    const windows = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    expect(describeDevice(chromeAndroid, 'SM-S918B|14.0.0')).toBe('Phone · SM-S918B · Android 14');
+    expect(describeDevice(chromeAndroid, '|15.0.0')).toBe('Phone · Android 15');
+    expect(describeDevice(windows, '|15.0.0')).toBe('Desktop · Windows 11');
+    expect(describeDevice(windows, '|10.0.0')).toBe('Desktop · Windows 10');
+    expect(describeDevice(mac, '|15.2.0')).toBe('Desktop · macOS 15');
+    expect(describeDevice(mac, '|10.15.7')).toBe('Desktop · macOS 10.15');
+    expect(describeDevice(windows, null)).toBe('Desktop · Windows');
+    expect(describeDevice(chromeAndroid, 'bad<model>|x')).toBe('Phone · Android');
+  });
+
   test('a long or odd model is not shown', () => {
     expect(describeDevice(`Mozilla/5.0 (Linux; Android 14; ${'X'.repeat(50)}) Chrome/120.0 Mobile Safari/537.36`)).toBe('Phone · Android 14');
   });

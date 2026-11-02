@@ -9,12 +9,16 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   into the log line (`cf.logCustomData`), so a visitor's first request, sent before they had the cookie, counts under the same ID.
   When the site attaches the shared `dliu-traffic-geo` origin request policy, CloudFront adds `CloudFront-Viewer-City`
   and the function logs `<id>.<hex of the UTF-8 city>` (hex, because CloudFront escapes other characters in log fields).
+  On HTML responses it sends `Accept-CH: Sec-CH-UA-Model, Sec-CH-UA-Platform-Version`, so Chrome-based browsers send
+  their device model and real system version on later requests; the function validates them and logs
+  `_m<hex model>_v<version>` after the ID and city. Safari and Firefox do not send client hints.
 - **Query** – a partitioner Lambda puts each file's columns in a fixed order and moves it into `logs/site=<site>/dt=<date>/`;
   Glue + Athena (partition projection) query them.
 - **Dashboard** – `https://traffic.dliu.com`, private, Microsoft 365 (Entra ID) sign-in handled by the API Lambda (no Cognito).
   - `/` **All sites** – totals, visits over time, countries, a card per site (page views, visitors, IPs, last visit, sparkline) and the latest IP addresses.
   - `/site?site=<key>` **Site** – one site's chart, countries, top pages, referrers, IP addresses and request log.
-  - `/page?site=<key>&path=<path>` **Page** – one page's views over time, its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
+  - `/page?site=<key>&path=<path>` **Page** – one page's views over time, how visitors arrived (WeChat Moments/chat/group
+    from WeChat's `from=` share tag, else the referrer host or Direct), its visitors, IP addresses and requests (click a page in Top pages). The page and request searches accept a full URL.
   - `/ip?ip=<address>` **IP** – everything one IP did across all sites (with its country, city and network), plus other IPs with the same `dl_vid`.
   - `/visitor?visitor=<dl_vid>` **Visitor** – everything one `dl_vid` visitor ID did across all sites: the IPs it used, the pages it viewed and its requests (click a visitor ID anywhere).
   - A country filter (`?country=GB`, or `unknown`) narrows the All sites, Site and Page pages; click a country in the Countries table to apply it.

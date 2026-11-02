@@ -1,7 +1,7 @@
 import {
   $, botsNote, botToggle, buckets, card, chart, countryName, countryNote, countryShort, el, filters, fmt, formatTime,
   ipLink, isBot, kpis, pagedTable, pageLink, part, periodBar, periodText, series, setStatus, siteLink, siteName,
-  siteUrl, start, state, uaColumns, visitorLink, widget,
+  siteUrl, start, state, staticTable, uaColumns, visitorLink, widget,
 } from './dash.js';
 
 // One page of one site: who viewed it and from which IP addresses.
@@ -19,6 +19,25 @@ const overTime = card('Views over time');
 const note = countryNote(load);
 const scope = () => ({ site, path, ...filters() });
 
+// What each “Arrived via” value means (others are the host of the page the link was on).
+const SOURCE_HELP = {
+  'WeChat Moments': 'Opened from a WeChat Moments post (the link had from=timeline)',
+  'WeChat chat': 'Opened from a one-to-one WeChat chat (from=singlemessage)',
+  'WeChat group': 'Opened from a WeChat group chat (from=groupmessage)',
+  WeChat: 'Opened in WeChat from a link without a share tag (e.g. a copied link or a favourite)',
+};
+
+const sourceCard = card('How visitors arrived', { subtitle: 'by each visitor’s first view of this page' });
+const sources = staticTable({
+  empty: 'No one viewed this page in this period',
+  columns: [
+    { label: 'Arrived via', value: (r) => r.source, title: (r) => SOURCE_HELP[r.source] || (r.source === 'Direct' ? 'No referrer: typed, bookmarked, or opened from an app' : 'The page the link was on'), cls: 'nowrap' },
+    { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'num' },
+    { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
+  ],
+});
+sourceCard.body.append(sources.node);
+
 const visitorCard = card('Visitors', { subtitle: 'who viewed this page, by dl_vid cookie (or IP without one)' });
 const visitors = pagedTable({
   list: 'page_visitors',
@@ -34,6 +53,7 @@ const visitors = pagedTable({
     { label: 'Country', value: (r) => countryShort(r.country), title: (r) => (r.country ? countryName(r.country) : null), cls: 'nowrap' },
     { label: 'City', value: (r) => r.city || '', cls: 'nowrap' },
     { label: 'Views', value: (r) => fmt(r.views), cls: 'num' },
+    { label: 'Arrived via', value: (r) => r.source || '', title: (r) => SOURCE_HELP[r.source] || null, cls: 'nowrap' },
     { label: 'Last viewed', value: (r) => formatTime(r.last_seen), cls: 'nowrap' },
     { label: 'First viewed', value: (r) => formatTime(r.first_seen), cls: 'nowrap muted' },
     ...uaColumns('last_ua'),
@@ -94,6 +114,7 @@ page.append(
   note.node,
   kpiBox,
   overTime.node,
+  sourceCard.node,
   visitorCard.node,
   ipCard.node,
   logCard.node,
@@ -111,6 +132,8 @@ const loadKpis = widget(kpiBox, () => pagePart('summary'), ({ filters: f, rows }
     ['Countries', fmt(s.countries)],
   ]));
 });
+
+const loadSources = widget(sourceCard.node, () => pagePart('sources'), ({ rows }) => sources.set(rows));
 
 const loadChart = widget(overTime.node, () => pagePart('timeseries'), ({ filters: f, rows }) => {
   const keys = buckets(f);
@@ -131,6 +154,7 @@ function load() {
   note.update();
   loadKpis();
   loadChart();
+  loadSources();
   for (const table of [visitors, ips, log]) table.load();
 }
 

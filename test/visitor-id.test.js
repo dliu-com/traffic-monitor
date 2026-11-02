@@ -73,6 +73,37 @@ describe('visitor-id CloudFront function', () => {
     expect(withCity('\ud800')).toBe('abc123def456');
   });
 
+  test('logs client hints (model, system version) after the city', () => {
+    const withHints = (headers) => {
+      const e = event('cyy.dliu.com', { dl_vid: { value: 'abc123def456' } });
+      Object.assign(e.request.headers, headers);
+      logged.length = 0;
+      handler(e);
+      return logged[0];
+    };
+    const hex = (text) => Buffer.from(text, 'utf8').toString('hex');
+    const model = (value) => ({ 'sec-ch-ua-model': { value } });
+    const version = (value) => ({ 'sec-ch-ua-platform-version': { value } });
+    expect(withHints({ ...model('"SM-G996B"'), ...version('"14.0.0"') })).toBe(`abc123def456_m${hex('SM-G996B')}_v14.0.0`);
+    expect(withHints({ 'cloudfront-viewer-city': { value: 'Dublin' }, ...model('"Pixel 8"') })).toBe(`abc123def456.${hex('Dublin')}_m${hex('Pixel 8')}`);
+    expect(withHints({ ...model('""'), ...version('"15.2.0"') })).toBe('abc123def456_v15.2.0');
+    expect(withHints({ ...model('"a\'b<x>"'), ...version('"1.2.3.4.5"') })).toBe('abc123def456');
+    expect(withHints({ ...model(`"${'x'.repeat(41)}"`), ...version('"abc"') })).toBe('abc123def456');
+  });
+
+  test('asks browsers for client hints on HTML responses only', () => {
+    const respond = (type, headers = {}) => {
+      const e = event('cyy.dliu.com', { dl_vid: { value: 'abc123def456' } });
+      if (type) e.response.headers['content-type'] = { value: type };
+      Object.assign(e.response.headers, headers);
+      return handler(e).headers['accept-ch'];
+    };
+    expect(respond('text/html; charset=utf-8')).toEqual({ value: 'Sec-CH-UA-Model, Sec-CH-UA-Platform-Version' });
+    expect(respond('application/javascript')).toBeUndefined();
+    expect(respond(null)).toBeUndefined();
+    expect(respond('text/html', { 'accept-ch': { value: 'Sec-CH-UA' } })).toEqual({ value: 'Sec-CH-UA' });
+  });
+
   test('replaces a malformed cookie', () => {
     const response = handler(event('cyy.dliu.com', { dl_vid: { value: 'bad value;' } }));
     expect(response.cookies.dl_vid.value).toMatch(/^[a-z0-9]+$/);

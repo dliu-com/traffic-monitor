@@ -3,6 +3,8 @@
 import { describeBrowser, describeDevice } from './ua.js';
 
 export { describeBrowser, describeDevice };
+// The client hints that go with a user agent column: last_ua → last_hints, ua → hints.
+const hintsKey = (key) => key.replace(/ua$/, 'hints');
 export const $ = (id) => document.getElementById(id);
 export const number = new Intl.NumberFormat();
 // public: not signed in, so the page shows the pre-computed public figures (stats/<range>.json) only.
@@ -857,8 +859,9 @@ export function browserLabel(ua, asn) {
   const host = hostingName(asn);
   return host ? `${describeBrowser(ua)} · ${host}` : describeBrowser(ua);
 }
-// Browser and Device table columns, read from the user agent in `key` (full user agent on hover).
+// Browser and Device table columns, read from the user agent in `key` and its client hints (all of it on hover).
 export const uaColumns = (key, withHosting = true) => [
   { label: 'Browser', value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'muted' },
-  { label: 'Device', value: (r) => describeDevice(r[key]), title: (r) => r[key], cls: 'muted' },
+  { label: 'Device', value: (r) => describeDevice(r[key], r[hintsKey(key)]), title: (r) => uaTitle(r[key], r[hintsKey(key)]), cls: 'muted' },
 ];
+export const uaTitle = (ua, hints) => (hints ? `${ua}\nClient hints: ${hints.replace('|', ', system ')}` : ua);

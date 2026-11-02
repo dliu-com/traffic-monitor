@@ -54,12 +54,34 @@ function iosVersion(ua, os) {
   return version ? `${name} ${version}` : name;
 }
 
-// The kind of device, its model where the user agent names one, and its system:
-// "iPhone · iOS 18.6", "Phone · V2206A · Android 13", "Tablet · Android", "Desktop · Windows", "TV · webOS".
+// Client hints as the dashboard queries return them: "<model>|<system version>", either may be empty.
+export function parseHints(hints) {
+  const [model = '', version = ''] = typeof hints === 'string' ? hints.split('|') : [];
+  return {
+    model: /^[A-Za-z0-9 ._()+-]{1,40}$/.test(model) ? model.trim() : '',
+    version: /^\d{1,3}(\.\d{1,3}){0,3}$/.test(version) ? version : '',
+  };
+}
+
+// The real system version from the Sec-CH-UA-Platform-Version hint. Windows reports 13 and up for Windows 11,
+// 1 to 10 for Windows 10 and 0 for older ones.
+function hintedSystem(system, version) {
+  if (!version) return null;
+  const [major, minor] = version.split('.').map(Number);
+  if (system === 'Windows') return major >= 13 ? 'Windows 11' : major >= 1 ? 'Windows 10' : 'Windows';
+  if (system === 'macOS') return `macOS ${major >= 11 ? major : `${major}.${minor || 0}`}`;
+  if (system === 'Android') return `Android ${major}`;
+  return null;
+}
+
+// The kind of device, its model where the user agent or client hints name one, and its system:
+// "iPhone · iOS 18.6", "Phone · V2206A · Android 13", "Tablet · Android", "Desktop · Windows 11", "TV · webOS".
 // Phones other than Android never send their model, and some versions are frozen: macOS always says 10.15.7,
-// Windows 10 and 11 both say NT 10.0, and Chrome on Android says Android 10, so those are left out.
-export function describeDevice(ua) {
+// Windows 10 and 11 both say NT 10.0, and Chrome on Android says Android 10, so those are left out unless
+// Chrome sent the real ones as client hints (`hints`, see parseHints).
+export function describeDevice(ua, hints) {
   if (!ua || ua === '-' || BOT_UA.test(ua)) return '';
+  const hinted = parseHints(hints);
   if (TV.test(ua)) {
     const system = /Tizen/i.test(ua) ? 'Tizen' : /Web0S|webOS/i.test(ua) ? 'webOS' : /AppleTV/.test(ua) ? 'tvOS'
       : /Roku/i.test(ua) ? 'Roku' : /Android|GoogleTV|CrKey|AFT[A-Z]/.test(ua) ? 'Android' : '';
@@ -68,13 +90,13 @@ export function describeDevice(ua) {
   if (/iPhone|iPod/.test(ua)) return `iPhone · ${iosVersion(ua, 'iPhone')}`;
   if (/iPad/.test(ua)) return `iPad · ${iosVersion(ua, 'iPad')}`;
   if (/Android/.test(ua)) {
-    const model = androidModel(ua);
+    const model = hinted.model || androidModel(ua);
     const version = ua.match(/Android (\d+(?:\.\d+)?)/);
-    const frozen = !model && /Android 10; K\)/.test(ua);
-    const system = version && !frozen ? `Android ${version[1]}` : 'Android';
+    const frozen = /Android 10; K\)/.test(ua);
+    const system = hintedSystem('Android', hinted.version) || (version && !frozen ? `Android ${version[1]}` : 'Android');
     return [/Mobile|Phone/.test(ua) ? 'Phone' : 'Tablet', model, system].filter(Boolean).join(' · ');
   }
   const desktop = /Windows/.test(ua) ? 'Windows' : /Macintosh|Mac OS X/.test(ua) ? 'macOS' : /CrOS/.test(ua) ? 'ChromeOS'
     : /Linux|X11/.test(ua) ? 'Linux' : '';
-  return desktop ? `Desktop · ${desktop}` : '';
+  return desktop ? `Desktop · ${hintedSystem(desktop, hinted.version) || desktop}` : '';
 }

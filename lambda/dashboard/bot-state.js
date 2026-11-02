@@ -30,7 +30,7 @@ const VISITOR_COOKIE = /dl_vid=[a-z0-9]{8,40}/;
 const ASN_VALUE = /^[0-9]{1,10}$/;
 const COUNTRY_VALUE = /^[A-Z]{2}$/;
 // The visitor function logs <id>.<hex city> when CloudFront gave a city.
-const LOGGED_CITY = /^[a-z0-9]{8,40}\.(?:[0-9a-f]{2}){1,240}$/;
+const LOGGED_CITY = /^[a-z0-9]{8,40}\.(?:[0-9a-f]{2}){1,240}(?:_|$)/;
 const VERSION = 2;
 
 // Per IP: [requests, browser requests, latest ASN, time of that ASN, asked for a scanner path, loaded a page,

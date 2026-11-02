@@ -1,7 +1,7 @@
 import {
   $, botReasonText, card, countryLabel, countryName, countryShort, describeBrowser, describeDevice, el, facts, fmt,
   formatTime, hostingName, IP_PATTERN, ipLink, isBot, kpis, pagedTable, pageLink, part, period, periodBar, periodText,
-  setStatus, siteLink, siteName, start, staticTable, uaColumns, visitorLink, widget,
+  setStatus, siteLink, siteName, start, staticTable, uaColumns, uaTitle, visitorLink, widget,
 } from './dash.js';
 
 const page = $('page');
@@ -128,7 +128,7 @@ const loadSummary = widget(summaryBox, () => ipPart('summary'), ({ filters, rows
       ['First seen', seen ? formatTime(s.first_seen) : ''],
       ['Last seen', seen ? formatTime(s.last_seen) : ''],
       ['Latest browser', describeBrowser(s.last_ua), s.last_ua],
-      ['Latest device', describeDevice(s.last_ua), s.last_ua],
+      ['Latest device', describeDevice(s.last_ua, s.last_hints), uaTitle(s.last_ua, s.last_hints)],
       ['Different browsers', seen ? fmt(s.user_agents) : ''],
       ['Visitor IDs (dl_vid)', seen ? fmt(s.cookies) : ''],
       ['Errors', seen ? fmt(s.errors) : ''],
