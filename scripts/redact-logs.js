@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 'use strict';
-// One-off clean-up: logs filed before the partitioner redacted cookies hold the whole Cookie header,
-// including the sites' sign-in session cookies. This rewrites every file under logs/ and archive/ so the
-// cs(Cookie) column keeps only the dl_vid visitor ID. The bucket is not versioned, so the old copies are
-// gone once overwritten. Safe to run more than once.
+// One-off clean-up: logs filed before the partitioner redacted them hold the whole Cookie header (the
+// sites' sign-in session cookies) and secret query values (share tokens, OAuth codes). This rewrites every
+// file under logs/ and archive/ with the partitioner's redaction: the cs(Cookie) column keeps only the
+// dl_vid visitor ID, and secret values in cs-uri-query and cs(Referer) become "redacted". The bucket is
+// not versioned, so the old copies are gone once overwritten. Safe to run more than once.
 //
-// Usage: node scripts/redact-cookies.js --bucket <log bucket> [--dry-run]
+// Usage: node scripts/redact-logs.js --bucket <log bucket> [--dry-run]
 const zlib = require('zlib');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { redactLogText } = require('../lambda/partitioner');
@@ -19,7 +20,7 @@ function arg(name) {
 async function main() {
   const bucket = arg('bucket');
   const dryRun = process.argv.includes('--dry-run');
-  if (!bucket) throw new Error('Usage: redact-cookies.js --bucket <log bucket> [--dry-run]');
+  if (!bucket) throw new Error('Usage: redact-logs.js --bucket <log bucket> [--dry-run]');
   const s3 = new S3Client({});
   let checked = 0;
   let changed = 0;

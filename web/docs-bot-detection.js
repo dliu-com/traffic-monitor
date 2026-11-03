@@ -135,7 +135,7 @@ detailList(t('数据', 'Data'), [
   t('仪表板查询会按日期和 IP 对所选时段 LEFT JOIN bot_ips；爬虫 User-Agent 规则在同一查询中应用。', 'Dashboard queries LEFT JOIN bot_ips on day and IP for the chosen period; the crawler user agent rule is applied in the same query.'),
   t('机器人判定结果一年后删除。机器人自身的请求在满 4 天后由每日日志合并删除。', 'Bot verdicts are deleted after a year. The bots\' own requests are deleted by the daily log merge once a day is 4 days old.'),
   t('每次运行都会把 AbuseIPDB 计数（按日志日期：出现、真人、近期已查、已查询、剩余、滥用）写入 abuseipdb/runs/，保留 120 天，供 AbuseIPDB 检查页面使用。', 'Each run writes its AbuseIPDB counts (per log day: seen, people, checked recently, looked up, left, abusive) to abuseipdb/runs/, kept 120 days, for the AbuseIPDB check page.'),
-  t('托管网络列表每周一根据两份公开的 ASN 列表加上内置的核心列表重新生成，存放在日志存储桶中。', 'The hosting list is rebuilt every Monday from two public ASN lists plus a built-in core, and stored in the log bucket.'),
+  t('托管网络列表每周一根据两份公开的 ASN 列表加上内置的核心列表重新生成，存放在日志存储桶中。因为机器人的请求会被永久删除，列出大型家庭宽带或移动运营商的列表会被跳过，一次更新最多新增 300 个网络。', 'The hosting list is rebuilt every Monday from two public ASN lists plus a built-in core, and stored in the log bucket. Because bots\' requests are deleted for good, a list naming a big home broadband or mobile network is skipped, and one update may add at most 300 networks.'),
   t('运行状态（运行中、已完成或失败，以及计数）保存在 bots/status.json 中；16 分钟后仍未完成的运行显示为失败。', 'The run status (running, done or failed, with counts) is kept in bots/status.json; a run that has not finished after 16 minutes is shown as failed.'),
 ]);
 detailList(t('命令', 'Commands'), [

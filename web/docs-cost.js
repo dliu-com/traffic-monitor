@@ -26,7 +26,7 @@ root.append(table([t('组成部分', 'Part'), t('计费方式', 'How it is bille
   [t('公开统计', 'Public statistics'), t('每天 02:00 UTC 运行三次 Athena 查询，生成游客看到的 7、30 和 90 天总计', 'Three Athena queries a day, at 02:00 UTC, write the 7, 30 and 90-day totals guests see'), num('≈ $0.08')],
   [t('机器人检查 Lambda', 'Bot check Lambda'), t('每 6 小时一次，另加“立即检查机器人”；每次运行只读取之前任何一次运行都没读过的日志文件，不运行 Athena 查询；配置 1 GB 内存以容纳城市数据库', 'Every 6 hours, plus Check bots now; each run reads only the log files no earlier run has read, with no Athena query; 1 GB of memory to hold the city database'), num('≈ $0.04')],
   [t('每日日志合并', 'Daily log merge'), t('每天 01:30 UTC 把每个网站一天的日志合并为一个文件，按月分文件夹存放，并删除机器人的请求', 'At 01:30 UTC merges each site\'s day into one file in a folder per month and deletes bots\' requests'), num('≈ $0.01')],
-  [t('S3 存储、CloudWatch 日志、每周托管网络列表', 'S3 storage, CloudWatch logs, weekly hosting list'), t('gzip 压缩后的日志每月约 25 MB，保留一年；Lambda 日志保留一个月', 'Gzipped logs of about 25 MB a month, kept for one year; Lambda logs kept one month'), num('≈ $0.01')],
+  [t('S3 存储、CloudWatch 日志、每周托管网络列表', 'S3 storage, CloudWatch logs, weekly hosting list'), t('gzip 压缩后的日志每月约 25 MB，保留一年；Lambda 日志保留 90 天', 'Gzipped logs of about 25 MB a month, kept for one year; Lambda logs kept 90 days'), num('≈ $0.01')],
   [t('DB-IP 城市数据库', 'DB-IP city database'), t('每月 2 日下载（在 S3 中保存约 130 MB），当某个 IP 没有 CloudFront 城市时由机器人检查读取', 'Downloaded on the 2nd of each month (about 130 MB kept in S3), and read by the bot check when an IP has no CloudFront city'), num('≈ $0.01')],
   [t('CloudFront 日志投递（标准日志 v2）', 'CloudFront log delivery (standard logging v2)'), t('投递到 S3 的日志每 GB $0.25；按目前的流量每月只有几 MB', '$0.25 per GB of log lines delivered to S3; a few MB a month at this traffic'), num('< $0.01')],
   [t('访客 ID 函数', 'Visitor ID function'), t('每百万次网站请求 $0.10', '$0.10 per million site requests'), num('< $0.01')],
@@ -64,7 +64,7 @@ root.append(flow({
     { icon: 'filter', title: t('分区', 'Partitions'), text: t('查询只读取所选的网站、日期和月份', 'Queries read only the chosen sites, days and months') },
     { icon: 'budget', title: t('扫描上限', 'Scan cap'), text: t('每次查询扫描满 1 GB 即停止', 'Each query stops at 1 GB scanned') },
     { icon: 'clock', title: t('结果复用', 'Result reuse'), text: t('5 分钟内的相同查询免费', 'The same query within 5 minutes is free') },
-    { icon: 's3', title: t('生命周期', 'Lifecycle'), text: t('原始文件 7 天后删除，日志 1 年后删除', 'Raw files deleted after 7 days, logs after 1 year'), tone: 'good' },
+    { icon: 's3', title: t('生命周期', 'Lifecycle'), text: t('原始文件归档后删除（最长 1 天），日志 1 年后删除', 'Raw files deleted once filed (1 day at most), logs after 1 year'), tone: 'good' },
   ],
 }));
 

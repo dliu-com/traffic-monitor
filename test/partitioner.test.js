@@ -1,6 +1,6 @@
 const zlib = require('zlib');
 const { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
+const { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
 const FIELDS = require('../lambda/partitioner/fields.json');
 
 // A v2 line with every legacy field set to "<name>" plus the three added fields.
@@ -116,6 +116,38 @@ describe('log partitioner', () => {
       + '2026-10-09\tsession=secret\t203.0.113.9\n#Fields: cs(Cookie)\r\nsession=x\r\n';
     expect(redactLogText(text)).toBe('#Version: 1.0\n#Fields: date cs(Cookie) c-ip\n2026-10-09\tdl_vid=abc123def456\t203.0.113.9\n'
       + '2026-10-09\t-\t203.0.113.9\n#Fields: cs(Cookie)\r\n-\r\n');
+    expect(redactLogText(redactLogText(text))).toBe(redactLogText(text));
+  });
+
+  test('replaces secret query values (share tokens, OAuth codes) and keeps the rest', () => {
+    expect(redactQuery('token=abc123&from=wechat')).toBe('token=redacted&from=wechat');
+    expect(redactQuery('code=0.AQ-x_y&state=s1&session_state=z')).toBe('code=redacted&state=redacted&session_state=redacted');
+    expect(redactQuery('X-Amz-Signature=ff&X-Amz-Credential=a%2Fb&v=3')).toBe('X-Amz-Signature=redacted&X-Amz-Credential=redacted&v=3');
+    expect(redactQuery('access_token=a&id_token=b&api_key=c&password=d&page=2')).toBe('access_token=redacted&id_token=redacted&api_key=redacted&password=redacted&page=2');
+    expect(redactQuery('returnto=Main_Page&title=x&code')).toBe('returnto=Main_Page&title=x&code');
+    expect(redactQuery('%74oken=abc')).toBe('%74oken=redacted');
+    expect(redactQuery('-')).toBe('-');
+    expect(redactQuery(redactQuery('token=a&from=x'))).toBe('token=redacted&from=x');
+  });
+
+  test('redacts secrets in the referrer query, raw or percent-encoded', () => {
+    expect(redactReferrer('https://plan.dliu.com/s?token=abc&from=x')).toBe('https://plan.dliu.com/s?token=redacted&from=x');
+    expect(redactReferrer('https://plan.dliu.com/s%3Ftoken%3Dabc%26from%3Dx')).toBe('https://plan.dliu.com/s%3Ftoken%3Dredacted%26from%3Dx');
+    expect(redactReferrer('https://blog.dliu.com/post/1')).toBe('https://blog.dliu.com/post/1');
+    expect(redactReferrer('-')).toBe('-');
+  });
+
+  test('new v2 logs never keep a secret query value or referrer token', () => {
+    const line = v2Line({ 'cs-uri-query': 'code=secretcode&state=s&from=wechat', 'cs(Referer)': 'https://plan.dliu.com/?token=t1' });
+    const row = normalizeV2(`${line}\n`).split('\n')[2].split('\t');
+    expect(row[OUTPUT_FIELDS.indexOf('cs-uri-query')]).toBe('code=redacted&state=redacted&from=wechat');
+    expect(row[OUTPUT_FIELDS.indexOf('cs(Referer)')]).toBe('https://plan.dliu.com/?token=redacted');
+    expect(normalizeV2(`${line}\n`)).not.toMatch(/secretcode|t1\b/);
+  });
+
+  test('redacts the query and referrer columns of an already filed log, by header', () => {
+    const text = '#Fields: date cs-uri-query cs(Referer)\n2026-10-09\ttoken=abc&from=x\thttps://plan.dliu.com/?code=c\r\n';
+    expect(redactLogText(text)).toBe('#Fields: date cs-uri-query cs(Referer)\n2026-10-09\ttoken=redacted&from=x\thttps://plan.dliu.com/?code=redacted\r\n');
     expect(redactLogText(redactLogText(text))).toBe(redactLogText(text));
   });
 

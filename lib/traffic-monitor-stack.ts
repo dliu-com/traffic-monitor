@@ -123,8 +123,8 @@ export class TrafficMonitorStack extends Stack {
       lifecycleRules: [
         { id: 'expire-logs', prefix: 'logs/', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-log-archive', prefix: 'archive/', expiration: Duration.days(props.retentionDays ?? 365) },
-        { id: 'expire-unprocessed-raw', prefix: 'raw/', expiration: Duration.days(7) },
-        { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(7) },
+        { id: 'expire-unprocessed-raw', prefix: 'raw/', expiration: Duration.days(1) },
+        { id: 'expire-unprocessed-raw-v2', prefix: `${V2_PREFIX}/`, expiration: Duration.days(1) },
         { id: 'expire-bot-verdicts', prefix: 'bots/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
         { id: 'expire-abuseipdb-results', prefix: 'reputation/', expiration: Duration.days(180) },
         { id: 'expire-db-ip-cities', prefix: 'cities/dt=', expiration: Duration.days(props.retentionDays ?? 365) },
@@ -167,7 +167,7 @@ export class TrafficMonitorStack extends Stack {
       memorySize: 512,
       description: 'Files CloudFront logs from raw/ and raw-v2/ into logs/site=<site>/dt=<day>/',
       logGroup: new logs.LogGroup(this, 'LogPartitionerLogs', {
-        retention: logs.RetentionDays.ONE_WEEK,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
@@ -407,7 +407,7 @@ export class TrafficMonitorStack extends Stack {
         BOTS_BUCKET: logBucket.bucketName,
       },
       logGroup: new logs.LogGroup(this, 'DashboardLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
@@ -451,11 +451,13 @@ export class TrafficMonitorStack extends Stack {
       description: 'Refreshes the hosting network (ASN) list the dashboard counts as bots',
       environment: { HOSTING_BUCKET: logBucket.bucketName },
       logGroup: new logs.LogGroup(this, 'HostingListUpdaterLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
     logBucket.grantPut(hostingUpdater, HOSTING_KEY);
+    // Reads the last copy, to refuse an update that adds too many networks at once.
+    logBucket.grantRead(hostingUpdater, HOSTING_KEY);
     new events.Rule(this, 'HostingListWeekly', {
       description: 'Refresh the hosting network list every Monday',
       schedule: events.Schedule.cron({ weekDay: 'MON', hour: '4', minute: '0' }),
@@ -473,7 +475,7 @@ export class TrafficMonitorStack extends Stack {
       description: 'Downloads the DB-IP City Lite database each month for the city fill-in',
       environment: { GEO_BUCKET: logBucket.bucketName },
       logGroup: new logs.LogGroup(this, 'CityDatabaseUpdaterLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
@@ -510,7 +512,7 @@ export class TrafficMonitorStack extends Stack {
         SITES: props.sites.map((s) => `${s.key}=${s.host}`).join(','),
       },
       logGroup: new logs.LogGroup(this, 'BotClassifierLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
@@ -562,7 +564,7 @@ export class TrafficMonitorStack extends Stack {
         LOGS_BUCKET: logBucket.bucketName,
       },
       logGroup: new logs.LogGroup(this, 'LogMergeLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
@@ -608,7 +610,7 @@ export class TrafficMonitorStack extends Stack {
         STATS_BUCKET: siteBucket.bucketName,
       },
       logGroup: new logs.LogGroup(this, 'PublicStatsLogs', {
-        retention: logs.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.THREE_MONTHS,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });

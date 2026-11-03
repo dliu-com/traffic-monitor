@@ -14,11 +14,18 @@ test('log bucket allows CloudFront ACL-based delivery and expires logs after a y
     LifecycleConfiguration: {
       Rules: Match.arrayWith([
         Match.objectLike({ Prefix: 'logs/', ExpirationInDays: 365 }),
-        Match.objectLike({ Prefix: 'raw/', ExpirationInDays: 7 }),
-        Match.objectLike({ Prefix: 'raw-v2/', ExpirationInDays: 7 }),
+        // Raw files still hold the sites' session cookies; the partitioner deletes each one once filed.
+        Match.objectLike({ Prefix: 'raw/', ExpirationInDays: 1 }),
+        Match.objectLike({ Prefix: 'raw-v2/', ExpirationInDays: 1 }),
       ]),
     },
   });
+});
+
+test('every CloudWatch log group keeps logs for 90 days', () => {
+  const groups = Object.values(template.findResources('AWS::Logs::LogGroup'));
+  expect(groups).toHaveLength(7);
+  for (const group of groups) expect(group.Properties.RetentionInDays).toBe(90);
 });
 
 test('exports the log bucket and visitor function for the sites', () => {

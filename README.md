@@ -243,6 +243,10 @@ aws sns subscribe --region eu-west-1 --protocol email --notification-endpoint us
   is skipped, and if the merged list looks wrong nothing is written, so the last copy stays. The dashboard reads the
   copy at most hourly and falls back to the built-in core. Networks that also carry people (Cloudflare WARP, iCloud
   Private Relay via Akamai, Fastly and Apple) are excluded in code and always win. People on commercial VPNs count as bots.
+  Because the log merge deletes bots' requests for good, a poisoned list must not reach home users: a source that
+  names one of about 60 big home broadband or mobile networks (`CONSUMER` in hosting.js; Comcast, BT, China Telecom…)
+  is skipped, those networks are never hosting, and an update that would add more than 300 networks to the last copy
+  is refused. After checking such a change, run the updater once with the payload `{"force":true}`.
 - Country and ASN come from CloudFront itself; requests before the switch to v2 (about 21:00 UTC on 9 Oct 2026)
   have none. City comes from CloudFront too, from about 13:30 UTC on 12 Oct 2026, and only on requests the visitor
   function runs on (not `/api/*` behaviors, nor link.dliu.com, whose viewer-request function answers every request).
@@ -257,9 +261,13 @@ aws sns subscribe --region eu-west-1 --protocol email --notification-endpoint us
 - Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
   are deleted, since v2 already has those requests. The overlap hour was cleaned with
   `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.
-- CloudFront logs the whole Cookie header, including the sites' sign-in session cookies. The partitioner keeps only
-  `dl_vid=<id>` in `cs(Cookie)` before filing a log, so sessions are never stored. Logs filed before this change were
-  rewritten with `node scripts/redact-cookies.js --bucket <log bucket>` (safe to rerun; `--dry-run` only counts).
+- CloudFront logs the whole Cookie header, including the sites' sign-in session cookies, and the full query string and
+  referrer, which can hold share tokens (plan's `?token=`) and OAuth `code`/`state`. Before filing a log the
+  partitioner keeps only `dl_vid=<id>` in `cs(Cookie)` and replaces secret query values (token, code, state, keys,
+  signatures, passwords…) with `redacted` in `cs-uri-query` and `cs(Referer)`; the names stay, and nothing reads the
+  values. It then deletes the raw file, so raw logs live only seconds. Logs filed before this were rewritten with
+  `node scripts/redact-logs.js --bucket <log bucket>` (safe to rerun; `--dry-run` only counts).
 - CloudFront logs arrive with a delay of a few minutes.
-- Logs are kept for 1 year; raw (unpartitioned) files for 7 days.
+- Logs are kept for 1 year; a raw (unpartitioned) file left by a failed partitioner run expires after 1 day.
+- Every CloudWatch log group (the app's Lambdas and CDK's helper Lambdas) keeps logs for 90 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

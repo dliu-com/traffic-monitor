@@ -12,6 +12,10 @@ const RETRY_MS = 5 * 60 * 1000;
 const MIN_SOURCE = 200;
 const MIN_TOTAL = 300;
 const MAX_BYTES = 2 * 1024 * 1024;
+// A poisoned public list could mark home broadband as hosting, and the log merge then deletes those
+// people's requests for good. So an update may add at most this many networks to the last copy (run the
+// job with {"force":true} after checking a larger change), and no list may name a big consumer ISP.
+const MAX_ADDED = 300;
 
 const SOURCES = [
   { name: 'brianhama/bad-asn-list', url: 'https://raw.githubusercontent.com/brianhama/bad-asn-list/master/bad-asn-list.csv', format: 'csv' },
@@ -49,6 +53,17 @@ const EXCLUDED = {
   54113: 'Fastly',
   714: 'Apple', 6185: 'Apple',
 };
+
+// Big home broadband and mobile networks (US, UK, Europe, China, Japan, Korea, Taiwan, Hong Kong, India,
+// Australia, Canada, Singapore). A source that lists any of them is skipped, and they are never hosting.
+const CONSUMER = Object.fromEntries([
+  7922, 20115, 11427, 10796, 33363, 33651, 7018, 701, 6167, 22394, 21928, 22773, 5650, // US
+  2856, 5607, 5089, 25135, 13285, // UK
+  3320, 3209, 3215, 12322, 15557, 5410, 3352, 6830, 1136, 8452, 12389, 3269, 6799, // Europe
+  4134, 4812, 4837, 17621, 9808, 56040, 56041, 56044, 56046, 56047, 24400, // China
+  4713, 2516, 17676, 4766, 9318, 3462, 9269, 4760, // Japan, Korea, Taiwan, Hong Kong
+  55836, 24560, 45609, 1221, 4804, 7545, 577, 812, 9506, 4657, // India, Australia, Canada, Singapore
+].map((asn) => [asn, true]));
 
 const validAsn = (value) => {
   const text = String(value).trim().replace(/^AS/i, '');
@@ -91,7 +106,7 @@ function parseAsnComment(text) {
 
 const PARSERS = { csv: parseCsv, 'asn-comment': parseAsnComment };
 
-// Built-in names first, then earlier sources' names; excluded networks removed last.
+// Built-in names first, then earlier sources' names; excluded networks and consumer ISPs removed last.
 function merge(lists) {
   const networks = {};
   for (const list of [BUILT_IN, ...lists]) {
@@ -100,7 +115,7 @@ function merge(lists) {
       if (asn && !networks[asn]) networks[asn] = cleanName(name) || `AS${asn}`;
     }
   }
-  for (const key of Object.keys(EXCLUDED)) delete networks[key];
+  for (const key of [...Object.keys(EXCLUDED), ...Object.keys(CONSUMER)]) delete networks[key];
   return networks;
 }
 
@@ -134,6 +149,8 @@ async function update(_event, deps = {}) {
       const list = PARSERS[source.format](await fetchText(source.url, fetchImpl));
       const count = Object.keys(list).length;
       if (count < MIN_SOURCE) throw new Error(`only ${count} networks`);
+      const consumer = Object.keys(list).filter((asn) => Object.hasOwn(CONSUMER, asn));
+      if (consumer.length) throw new Error(`lists consumer ISPs (${consumer.slice(0, 5).map((asn) => `AS${asn}`).join(', ')})`);
       lists.push(list);
       sources[source.name] = count;
     } catch (error) {
@@ -144,11 +161,22 @@ async function update(_event, deps = {}) {
   const networks = merge(lists);
   const total = Object.keys(networks).length;
   if (total < MIN_TOTAL) throw new Error(`Merged hosting list has only ${total} networks; keeping the last copy`);
-  const { PutObjectCommand } = require('@aws-sdk/client-s3');
+  const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+  let previous = null;
+  try {
+    const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: KEY }));
+    previous = JSON.parse(await result.Body.transformToString()).networks || {};
+  } catch (error) {
+    if (error.name !== 'NoSuchKey') throw new Error(`Cannot read the last copy (${error.message}); keeping it`);
+  }
+  const added = previous ? Object.keys(networks).filter((asn) => !Object.hasOwn(previous, asn)).length : 0;
+  if (added > MAX_ADDED && !(_event && _event.force === true)) {
+    throw new Error(`The update would add ${added} networks at once (limit ${MAX_ADDED}); keeping the last copy`);
+  }
   const body = JSON.stringify({ updated: new Date(deps.now ?? Date.now()).toISOString(), sources, networks });
   await client.send(new PutObjectCommand({ Bucket: bucket, Key: KEY, Body: body, ContentType: 'application/json' }));
-  console.log(JSON.stringify({ message: 'Hosting list updated', sources, total }));
-  return { sources, total };
+  console.log(JSON.stringify({ message: 'Hosting list updated', sources, total, added }));
+  return { sources, total, added };
 }
 
 let cached = null;
@@ -180,4 +208,4 @@ function resetCache() {
   cachedUntil = 0;
 }
 
-module.exports = { BUILT_IN, EXCLUDED, KEY, SOURCES, cleanName, loadHosting, merge, parseAsnComment, parseCsv, resetCache, update, validAsn };
+module.exports = { BUILT_IN, CONSUMER, EXCLUDED, KEY, MAX_ADDED, SOURCES, cleanName, loadHosting, merge, parseAsnComment, parseCsv, resetCache, update, validAsn };

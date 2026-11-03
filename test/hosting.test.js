@@ -1,6 +1,6 @@
 const hosting = require('../lambda/dashboard/hosting');
 
-const { BUILT_IN, EXCLUDED, KEY, SOURCES, cleanName, loadHosting, merge, parseAsnComment, parseCsv, resetCache, update, validAsn } = hosting;
+const { BUILT_IN, CONSUMER, EXCLUDED, KEY, MAX_ADDED, SOURCES, cleanName, loadHosting, merge, parseAsnComment, parseCsv, resetCache, update, validAsn } = hosting;
 
 const many = (from, count, format) => Array.from({ length: count }, (_, i) => (format === 'csv' ? `${from + i},"Host ${i}"` : `AS${from + i} # Host ${i}`)).join('\n');
 
@@ -36,7 +36,19 @@ describe('merge', () => {
 
 describe('weekly update', () => {
   const puts = [];
-  const s3 = { send: async (command) => { puts.push(command.input); return {}; } };
+  let previous = null;
+  const noSuchKey = Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' });
+  const s3 = {
+    send: async (command) => {
+      if (command.input.Body === undefined) {
+        if (previous instanceof Error) throw previous;
+        if (!previous) throw noSuchKey;
+        return { Body: { transformToString: async () => JSON.stringify({ networks: previous }) } };
+      }
+      puts.push(command.input);
+      return {};
+    },
+  };
   const bodies = { csv: `ASN,Entity\n${many(100000, 250, 'csv')}`, 'asn-comment': many(200000, 250, 'asn') };
   const fetchFor = (overrides = {}) => async (url) => {
     const source = SOURCES.find((s) => s.url === url);
@@ -45,7 +57,7 @@ describe('weekly update', () => {
     return { ok: true, status: 200, text: async () => body };
   };
 
-  beforeEach(() => { puts.length = 0; });
+  beforeEach(() => { puts.length = 0; previous = null; });
 
   test('merges both lists and saves them', async () => {
     const result = await update({}, { fetchImpl: fetchFor(), s3, bucket: 'b', now: Date.UTC(2026, 9, 12) });
@@ -67,6 +79,62 @@ describe('weekly update', () => {
     await expect(update({}, { fetchImpl: fetchFor({ csv: 'ASN,Entity\n1,"x"', 'asn-comment': new Error('down') }), s3, bucket: 'b' })).rejects.toThrow('keeping the last copy');
     await expect(update({}, { fetchImpl: fetchFor({ csv: many(1, 210, 'csv'), 'asn-comment': '' }), s3, bucket: 'b' })).rejects.toThrow('only');
     expect(puts).toHaveLength(0);
+  });
+});
+
+describe('poisoned list guards', () => {
+  const puts = [];
+  let previous;
+  const s3 = {
+    send: async (command) => {
+      if (command.input.Body === undefined) return { Body: { transformToString: async () => JSON.stringify({ networks: previous }) } };
+      puts.push(command.input);
+      return {};
+    },
+  };
+  const fetchWith = (csv, asn) => async (url) => {
+    const source = SOURCES.find((s) => s.url === url);
+    return { ok: true, status: 200, text: async () => (source.format === 'csv' ? csv : asn) };
+  };
+  const ids = (from, count) => Object.fromEntries(Array.from({ length: count }, (_, i) => [from + i, `Host ${i}`]));
+
+  beforeEach(() => { puts.length = 0; previous = merge([ids(100000, 250), ids(200000, 250)]); });
+
+  test('a source that lists a big consumer ISP is skipped', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const poisoned = `ASN,Entity\n${many(100000, 250, 'csv')}\n7922,"Comcast"`;
+    const result = await update({}, { fetchImpl: fetchWith(poisoned, many(200000, 300, 'asn')), s3, bucket: 'b' });
+    expect(Object.keys(JSON.parse(puts[0].Body).sources)).toEqual(['X4BNet/lists_vpn']);
+    expect(JSON.parse(puts[0].Body).networks).not.toHaveProperty('7922');
+    expect(result.added).toBe(50);
+    expect(warn.mock.calls.join(' ')).toContain('consumer ISPs (AS7922)');
+    warn.mockRestore();
+  });
+
+  test(`an update adding more than ${MAX_ADDED} networks at once is refused unless forced`, async () => {
+    const grown = `ASN,Entity\n${many(100000, 250, 'csv')}\n${many(300000, MAX_ADDED + 1, 'csv')}`;
+    await expect(update({}, { fetchImpl: fetchWith(grown, many(200000, 250, 'asn')), s3, bucket: 'b' }))
+      .rejects.toThrow(`would add ${MAX_ADDED + 1} networks at once`);
+    expect(puts).toHaveLength(0);
+    const result = await update({ force: true }, { fetchImpl: fetchWith(grown, many(200000, 250, 'asn')), s3, bucket: 'b' });
+    expect(result.added).toBe(MAX_ADDED + 1);
+    const ok = `ASN,Entity\n${many(100000, 250, 'csv')}\n${many(300000, MAX_ADDED, 'csv')}`;
+    expect((await update({}, { fetchImpl: fetchWith(ok, many(200000, 250, 'asn')), s3, bucket: 'b' })).added).toBe(MAX_ADDED);
+  });
+
+  test('an unreadable last copy keeps it', async () => {
+    const denied = { send: async () => { throw Object.assign(new Error('Access Denied'), { name: 'AccessDenied' }); } };
+    await expect(update({}, { fetchImpl: fetchWith(`ASN,Entity\n${many(100000, 400, 'csv')}`, ''), s3: denied, bucket: 'b' }))
+      .rejects.toThrow('Cannot read the last copy');
+  });
+
+  test('a poisoned S3 copy can never mark a consumer ISP as hosting', async () => {
+    resetCache();
+    const body = JSON.stringify({ networks: { 4134: 'ChinaNet', 2856: 'BT', 64500: 'Example' } });
+    const loaded = await loadHosting({ s3: { send: async () => ({ Body: { transformToString: async () => body } }) }, bucket: 'b', now: 0 });
+    expect(loaded[64500]).toBe('Example');
+    for (const asn of Object.keys(CONSUMER)) expect(loaded).not.toHaveProperty(asn);
+    resetCache();
   });
 });
 

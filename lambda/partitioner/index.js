@@ -59,21 +59,55 @@ function redactCookie(value) {
   return match ? `dl_vid=${match[1]}` : '-';
 }
 
-// Applies redactCookie to the cs(Cookie) column of a log file, keeping every other byte as it is.
+// Query parameters that carry secrets: share tokens (plan's ?token=), OAuth codes and state, signed URLs,
+// passwords and keys. Their values are replaced; the names stay, and nothing reads the values (the
+// dashboard only reads ?from=).
+const SECRET_PARAM = /token|secret|passw|signature|session|credential|api_?key|jwt|^(code|state|nonce|sig|key|pwd|otp|ticket|auth|x-amz-[a-z-]+)$/i;
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    return value;
+  }
+}
+
+// name=value&... with secret values replaced by "redacted". Separators may be raw or percent-encoded.
+function redactQuery(query) {
+  if (!query || query === '-') return query;
+  return query.split(/(&|%26)/i).map((part) => {
+    const eq = /=|%3D/i.exec(part);
+    if (!eq || !SECRET_PARAM.test(safeDecode(part.slice(0, eq.index)).trim())) return part;
+    return `${part.slice(0, eq.index + eq[0].length)}redacted`;
+  }).join('');
+}
+
+// A referrer can be a page of the same site with a secret in its query (e.g. a plan share link).
+function redactReferrer(value) {
+  if (!value || value === '-') return value;
+  const mark = /\?|%3F/i.exec(value);
+  return mark ? value.slice(0, mark.index + mark[0].length) + redactQuery(value.slice(mark.index + mark[0].length)) : value;
+}
+
+const REDACT = { 'cs(Cookie)': redactCookie, 'cs-uri-query': redactQuery, 'cs(Referer)': redactReferrer };
+
+// Applies the redactions above to an already filed log file, keeping every other byte as it is.
 // Columns are found by the #Fields header (falling back to the configured order).
 function redactLogText(text) {
-  let index = OUTPUT_FIELDS.indexOf('cs(Cookie)');
+  const columns = (names) => Object.keys(REDACT).map((name) => [names.indexOf(name), REDACT[name]]).filter(([i]) => i >= 0);
+  let targets = columns(OUTPUT_FIELDS);
   return text.split('\n').map((line) => {
     if (line.startsWith('#Fields:')) {
-      index = line.replace(/\r$/, '').slice('#Fields:'.length).trim().split(/\s+/).indexOf('cs(Cookie)');
+      targets = columns(line.replace(/\r$/, '').slice('#Fields:'.length).trim().split(/\s+/));
       return line;
     }
-    if (!line || line.startsWith('#') || index < 0) return line;
-    const values = line.split('\t');
-    if (values[index] === undefined) return line;
-    const cr = index === values.length - 1 && values[index].endsWith('\r');
-    values[index] = redactCookie(cr ? values[index].slice(0, -1) : values[index]) + (cr ? '\r' : '');
-    return values.join('\t');
+    if (!line || line.startsWith('#')) return line;
+    const cr = line.endsWith('\r');
+    const values = (cr ? line.slice(0, -1) : line).split('\t');
+    for (const [index, redact] of targets) {
+      if (values[index] !== undefined) values[index] = redact(values[index]);
+    }
+    return values.join('\t') + (cr ? '\r' : '');
   }).join('\n');
 }
 
@@ -98,7 +132,8 @@ function normalizeV2(text) {
     rows.push(OUTPUT_FIELDS.map((name) => {
       const value = byName.get(name);
       if (name === 'cs(Cookie)') return redactCookie(value);
-      return value === undefined || value === '' ? '-' : value.replace(/[\t\n]/g, ' ');
+      const clean = value === undefined || value === '' ? '-' : value.replace(/[\t\n]/g, ' ');
+      return REDACT[name] ? REDACT[name](clean) : clean;
     }).join('\t'));
   }
   return OUTPUT_HEADER + rows.map((row) => `${row}\n`).join('');
@@ -155,4 +190,4 @@ async function handler(event) {
   return processEvent(event, client());
 }
 
-module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };
+module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };
