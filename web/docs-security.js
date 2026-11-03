@@ -97,7 +97,7 @@ add('h2', t('拒绝钱包（每小时最高费用）', 'Denial of wallet (most c
 root.append(stats([
   [t('20 个', '20'), t('仪表板 Lambda 的最大并发数', 'most dashboard Lambda runs at once'), 'lambda'],
   ['1 GB', t('每次查询最多扫描的数据量', 'most data scanned per query'), 'athena'],
-  [t('每天 10 美元', '$10 a day'), t('超过即发送邮件提醒（全账号）', 'account-wide spend that triggers an email alert'), 'budget'],
+  [t('每天 10 美元', '$10 a day'), t('超过即发送邮件提醒（全账号，见 dliu-com/audit）', 'account-wide spend that triggers an email alert (in dliu-com/audit)'), 'budget'],
 ]));
 root.append(table([t('攻击', 'Attack'), t('每小时最高费用', 'Most per hour'), t('上限', 'What caps it')], [
   [t('大量未认证的 /api 或 /auth 调用', 'Unauthenticated /api or /auth flood'), t('Lambda 约 2 美元（20 个并发、512 MB、约 720 万次调用）', 'Lambda about $2 (20 at once, 512 MB, about 7.2 million calls)'), t('保留并发 20，超出部分返回 429', 'Reserved concurrency 20; the rest get 429')],
@@ -152,7 +152,7 @@ for (const text of [
 root.append(review);
 root.append(table(['ID', t('严重性', 'Severity'), t('发现', 'Finding'), t('状态', 'Status')], [
   ['F1', MEDIUM, t('仪表板 Lambda 与其他应用共享账号的 Lambda 并发，未认证的洪水请求可以占满它', 'The dashboard Lambda shared the account’s Lambda concurrency with the other apps, so an unauthenticated flood could use it all up'), FIXED],
-  ['F2', MEDIUM, t('没有覆盖本应用的费用上限或提醒（现有预算只覆盖其他应用）', 'No cost cap or alert covered this app (the existing budgets cover another app only)'), { text: t('✓ 已加提醒；不使用 WAF（已接受）', '✓ Alert added; no WAF (accepted)'), className: 'status fixed' }],
+  ['F2', MEDIUM, t('没有覆盖本应用的费用上限或提醒（现有预算只覆盖其他应用）', 'No cost cap or alert covered this app (the existing budgets cover another app only)'), { text: t('✓ 已加提醒（现位于 dliu-com/audit）；不使用 WAF（已接受）', '✓ Alert added (now in dliu-com/audit); no WAF (accepted)'), className: 'status fixed' }],
   ['F3', LOW, t('CDK 库内置的 minimatch 有 ReDoS 公告', 'A ReDoS advisory in the minimatch bundled with the CDK library'), t('已接受（仅部署时）', 'Accepted (deploy time only)')],
   ['F4', LOW, t('被拒绝登录者的账号名和 ID 写入 CloudWatch', 'The account name and ID of refused sign-ins are written to CloudWatch'), t('已接受（90 天，仅管理员可读）', 'Accepted (90 days, owner only)')],
   ['F5', LOW, t('独立复查：日志中保留了查询参数和来源页里的机密值（plan 的分享令牌、OAuth code 和 state）；未成功处理的原始文件（含会话 Cookie）最长保留 7 天', 'Independent review: logs kept secret values from the query and referrer (plan’s share tokens, OAuth code and state); a raw file that failed to be filed (with session cookies) could stay 7 days'), { text: t('✓ 已修复：分区器替换机密值，已归档的 48 个文件已重写；原始文件 1 天后过期', '✓ Fixed: the partitioner replaces secret values, the 48 filed logs that had them were rewritten; raw files expire after 1 day'), className: 'status fixed' }],
@@ -272,7 +272,7 @@ detailList('AWS', [
   t('机器人检查 Lambda 可以读取 logs/ 和 hosting/，读写 bots/、reputation/、bot-state/ 和 abuseipdb/runs/，读取 AbuseIPDB 密钥，并在 traffic 工作组中运行查询', 'The bot check Lambda can read logs/ and hosting/, read and write bots/, reputation/, bot-state/ and abuseipdb/runs/, read the AbuseIPDB key and run queries in the traffic workgroup'),
   t('仪表板 Lambda 可以读取 logs/、archive/、bots/、reputation/ 和 abuseipdb/，只能写入 bots/status.json，并可启动机器人检查 Lambda', 'The dashboard Lambda can read logs/, archive/, bots/, reputation/ and abuseipdb/, write only bots/status.json and start the bot check Lambda'),
   t('日志合并 Lambda 可以读取 logs/、bots/ 和 archive/，只能写入 archive/，只能删除 logs/ 下的文件；它不能运行查询', 'The log merge Lambda can read logs/, bots/ and archive/, write only archive/ and delete only logs/; it cannot run queries'),
-  t('仪表板 Lambda 保留 20 个并发（超出返回 429）；名为 account-daily-spending 的全账号预算在一天花费超过 10 美元时通过本应用的 SNS 主题发送邮件，只有本账号的 AWS Budgets 可以向该主题发布', 'The dashboard Lambda has 20 reserved concurrent runs (429 beyond); an account-wide budget, account-daily-spending, emails through this app’s SNS topic when a day passes $10, and only this account’s AWS Budgets may publish to that topic'),
+  t('仪表板 Lambda 保留 20 个并发（超出返回 429）；名为 account-daily-spending 的全账号预算在一天花费超过 10 美元时发送邮件；该预算及其 SNS 主题与其他全账号资源一起放在 dliu-com/audit 仓库（其 README 的“Cost alert”一节）', 'The dashboard Lambda has 20 reserved concurrent runs (429 beyond); an account-wide budget, account-daily-spending, emails when a day passes $10. The budget and its SNS topic live with the other account-wide resources in the dliu-com/audit repo (its README, “Cost alert”)'),
 ]);
 details.append(document.createElement('h3'));
 details.lastChild.textContent = t('延伸阅读', 'Further reading');

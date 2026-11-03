@@ -196,15 +196,9 @@ After `--xss`, open the printed visitor page signed in: no alert may appear and 
 
 ## Cost alert
 
-The stack creates an account-wide daily AWS budget (`account-daily-spending`, $10 a day) that publishes to the
-`CostAlertTopicArn` SNS topic. It warns; it stops nothing. Subscribe an address once (it is kept in AWS, not here) and
-click the confirmation link in the email:
-
-```sh
-aws sns subscribe --region eu-west-1 --protocol email --notification-endpoint user@example.com \
-  --topic-arn "$(aws cloudformation describe-stacks --region eu-west-1 --stack-name TrafficMonitor \
-    --query "Stacks[0].Outputs[?OutputKey=='CostAlertTopicArn'].OutputValue" --output text)"
-```
+The account-wide daily AWS budget (`account-daily-spending`, $10 a day) and its alert topic live in
+[dliu-com/audit](https://github.com/dliu-com/audit) (its README, "Cost alert"), with the other account-wide resources
+that belong to no single app. It covers this app's spend too. It warns; it stops nothing.
 
 ## Notes
 
