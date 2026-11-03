@@ -136,6 +136,10 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 <script src="https://traffic.dliu.com/t/s.js" async></script>
 ```
 
+If a site's CloudFront distribution is replaced (new ID), its delivery source can't be moved: CloudWatch Logs
+rejects the update and the stack rolls back. Deploy `TrafficLogDelivery` once without that site (a temporary local
+filter in `bin/traffic-monitor.ts`), then again with the new ID in `config/distributions.local.json`.
+
 ## Look (shared dliu.com UI)
 
 The dashboard uses the shared dliu.com look ([spec](https://files.dliu.com/dliu.com/README.md)): every page in `web/`

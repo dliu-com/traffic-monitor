@@ -1,5 +1,5 @@
 [
-  { "key": "root", "host": "dliu.com", "project": "home-site" },
+  { "key": "root", "host": "dliu.com", "project": "dliu-com" },
   { "key": "cyy", "host": "cyy.dliu.com", "project": "chenyiyu-master", "private": true },
   { "key": "files", "host": "files.dliu.com", "project": "file-server" },
   { "key": "link", "host": "link.dliu.com", "project": "link-router" },
