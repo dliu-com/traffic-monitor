@@ -77,7 +77,7 @@ Microsoft 365 Business Basic (Entra ID Free) is sufficient. Using an admin accou
    it lives in the SSM parameter `/dliu/entra-tenant-id`, owned by [dliu-com/audit](https://github.com/dliu-com/audit).
 3. **Certificates & secrets → New client secret** — copy the secret **Value** (shown once).
 4. **API permissions**: default `User.Read` → *Grant admin consent*.
-5. **Enterprise applications → Traffic Monitor** → *Assignment required = Yes*, and assign the users who may sign in. Microsoft decides who gets in; note that Entra skips this check for Global Administrators.
+5. **Enterprise applications → Traffic Monitor** → *Assignment required = Yes*, and assign the users who may sign in. Microsoft decides who gets in; note that Entra skips this check for Global Administrators. This is accepted (finding F7): Entra is the gate, and the app adds no object ID list or app role check.
 6. Store the client ID and secret (prompted interactively, saved to SSM Parameter Store under `/traffic-monitor/`):
 
    ```bash

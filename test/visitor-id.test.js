@@ -123,7 +123,7 @@ describe('visitor-id CloudFront function', () => {
   });
 
   test('keeps other response cookies', () => {
-    const e = event('home.dliu.com');
+    const e = event('blog.dliu.com');
     e.response.cookies = { other: { value: '1' } };
     const response = handler(e);
     expect(response.cookies.other.value).toBe('1');

@@ -2,7 +2,6 @@
   { "key": "root", "host": "dliu.com", "project": "home-site" },
   { "key": "cyy", "host": "cyy.dliu.com", "project": "chenyiyu-master", "private": true },
   { "key": "files", "host": "files.dliu.com", "project": "file-server" },
-  { "key": "home", "host": "home.dliu.com", "project": "home" },
   { "key": "link", "host": "link.dliu.com", "project": "link-router" },
   { "key": "plan", "host": "plan.dliu.com", "project": "travel-plan" },
   { "key": "weiqi", "host": "weiqi.dliu.com", "project": "weiqi" },
