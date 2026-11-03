@@ -13,7 +13,7 @@ const FIXED = { text: t('✓ 已修复', '✓ Fixed'), className: 'status fixed'
 const LOW = { text: t('低', 'Low'), className: 'risk-low' };
 const MEDIUM = { text: t('中', 'Medium'), className: 'risk-medium' };
 
-root.append(callout('shield', t('已于 2026 年 10 月 9 日针对线上网站完成审查和测试。发现的四个问题均已于当天修复，没有任何数据泄露。', 'Reviewed and tested against the live site on 9 October 2026. Four issues were found and fixed the same day; none exposed data.')));
+root.append(callout('shield', t('2026 年 11 月 3 日完成第二次更深入的审查：威胁模型、351 项可重复运行的线上检查和逐行代码审查。发现两个中危问题，均已于当天修复或加上提醒；没有任何数据泄露。第一次审查于 2026 年 10 月 9 日完成。', 'A second, deeper review on 3 November 2026: threat model, 351 rerunnable live checks and a line-by-line code review. Two medium findings were fixed or alerted on the same day; no data was exposed. The first review was on 9 October 2026.')));
 
 root.append(tiers({
   title: t('信任边界', 'Trust boundaries'),
@@ -59,9 +59,105 @@ root.append(stats([
   [t('12 小时', '12 hours'), t('会话有效期', 'session lifetime'), 'lock'],
 ]));
 
-add('h2', t('线上渗透测试', 'Live penetration test'));
-add('p', t('每项测试都使用 curl、openssl 和一个小型 Node 脚本针对 https://traffic.dliu.com 运行。需要登录的测试使用了真实会话。', 'Each test was run against https://traffic.dliu.com with curl, openssl and a small Node script. The signed-in tests used a real session.'));
-root.append(table([t('测试', 'Test'), t('结果', 'Result'), t('状态', 'Status')], [
+add('h2', t('资产与参与者', 'Assets and actors'));
+root.append(table([t('资产', 'Asset'), t('为什么重要', 'Why it matters')], [
+  [t('请求日志', 'Request logs'), t('每个网站每次请求的 IP、访客 ID、User-Agent、国家、城市和网络：个人数据，保存一年', 'IP, visitor ID, user agent, country, city and network of every request on every site: personal data, kept a year')],
+  [t('会话签名密钥', 'Session signing keys'), t('由 SSM 中的 Entra 客户端密钥派生；拿到它就能伪造管理员会话', 'Derived from the Entra client secret in SSM; whoever has it can forge an admin session')],
+  [t('共享的访客 ID 函数', 'The shared visitor ID function'), t('在每个 dliu.com 网站的每个响应上运行；被篡改会影响所有网站', 'Runs on every response of every dliu.com site; tampering with it affects them all')],
+  [t('AWS 账单', 'The AWS bill'), t('公开的端点被大量请求时会产生费用（见下文“拒绝钱包”）', 'Public endpoints cost money when flooded (see Denial of wallet below)')],
+  [t('统计数字的可信度', 'Trust in the numbers'), t('伪造的访问会扭曲分析，但不授予任何访问权限', 'Fake visits distort the analytics but grant no access')],
+]));
+root.append(table([t('参与者', 'Actor'), t('能做什么', 'Can'), t('不能做什么', 'Cannot')], [
+  [t('匿名访客或攻击者', 'Anonymous visitor or attacker'), t('访问所有网站和 traffic.dliu.com；控制写入日志的 User-Agent、Referrer、路径和 Cookie；发送页面上报；读取公开的总数', 'Visit every site and traffic.dliu.com; control the user agent, referrer, path and cookies that get logged; send page reports; read the public totals'), t('调用任何 /api 路由（401）；直接访问 Lambda 或存储桶（403）；让写入日志的内容在仪表板中运行', 'Call any /api route (401); reach the Lambda or buckets directly (403); make logged content run in the dashboard')],
+  [t('已登录的非管理员', 'Signed-in non-owner'), t('同一租户中的其他 Microsoft 账号可以尝试登录', 'Another Microsoft account in the tenant can try to sign in'), t('获得会话：应用要求分配用户，Lambda 还会检查 @dliu.com 域名（403）', 'Get a session: the app requires assignment and the Lambda also checks the @dliu.com domain (403)')],
+  [t('管理员', 'Owner'), t('读取所有日志；启动机器人检查', 'Read all logs; start a bot check'), t('通过仪表板写入或删除日志；运行自己编写的 SQL', 'Write or delete logs through the dashboard; run their own SQL')],
+  [t('被盗的会话 Cookie', 'Stolen session cookie'), t('最长 12 小时内拥有管理员的读取权限，并可让 Athena 产生费用', 'Owner read access for up to 12 hours, and Athena spending'), t('在过期后继续使用；扫描超过每次 1 GB', 'Outlive its expiry; scan more than 1 GB per query')],
+  [t('被入侵的依赖包', 'Compromised dependency'), t('CDK 和测试工具只在管理员电脑上部署时运行，可能篡改部署的内容', 'The CDK and test tools run only on the owner’s machine at deploy time and could alter what is deployed'), t('在生产环境中运行：Lambda 和边缘函数不打包任何第三方包（只使用运行时自带的 AWS SDK）', 'Run in production: the Lambdas and edge functions ship no third-party packages (only the runtime’s own AWS SDK)')],
+]));
+
+add('h2', t('STRIDE 逐组件分析', 'STRIDE per component'));
+add('p', t('S 仿冒 · T 篡改 · R 抵赖 · I 信息泄露 · D 拒绝服务 · E 权限提升', 'S spoofing · T tampering · R repudiation · I information disclosure · D denial of service · E elevation of privilege'));
+root.append(table([t('组件', 'Component'), 'STRIDE', t('威胁与控制措施', 'Threat and control')], [
+  [t('访客 ID 函数（所有网站共享）', 'Visitor ID function (shared by all sites)'), 'S T', t('伪造的 dl_vid（含脚本、引号或过长）会被替换为新的随机 ID；只有格式正确的 ID 会被记录', 'A forged dl_vid (script, quotes, too long) is replaced with a fresh random ID; only well-formed IDs are logged')],
+  ['', 'D E', t('代码由本仓库部署，经单元测试；它只设置 Cookie 和 Accept-CH，从不改变页面内容；CloudFront Function 无法访问网络或 AWS', 'Deployed from this repo and unit-tested; it only sets a cookie and Accept-CH and never changes page content; CloudFront Functions cannot reach the network or AWS')],
+  [t('页面上报 /t/e', 'Page reports /t/e'), 'S T', t('网站必须在列表中且与 Origin/Referer 一致；所有字段都做范围检查；路径以十六进制记录，因此无法注入日志行；浏览器之外的伪造上报只能扭曲阅读统计', 'The site must be listed and match the Origin/Referer; every field is range-checked; the path is logged as hex so log lines cannot be injected; forged reports from outside a browser can only skew reading stats')],
+  ['', 'D', t('在边缘直接回答 204，不经过 Lambda；见“拒绝钱包”', 'Answered 204 at the edge, never reaching a Lambda; see Denial of wallet')],
+  [t('仪表板静态页面', 'Dashboard static pages'), 'T I', t('私有存储桶，只能通过 CloudFront（OAC）读取；严格的 CSP、无内联脚本、禁止嵌入框架', 'Private bucket readable only through CloudFront (OAC); strict CSP, no inline scripts, no framing')],
+  [t('登录（Entra）', 'Sign-in (Entra)'), 'S E', t('PKCE、state、nonce、固定回调地址；校验 ID 令牌；需要分配用户和 @dliu.com 域名；登录 Cookie 与会话 Cookie 使用不同密钥', 'PKCE, state, nonce, fixed callback; ID token verified; assignment and the @dliu.com domain required; sign-in and session cookies use different keys')],
+  ['', 'R', t('每次成功和被拒绝的登录都会记录到 CloudWatch（保留一个月）', 'Every accepted and refused sign-in is written to CloudWatch (kept one month)')],
+  [t('仪表板 API（Lambda）', 'Dashboard API (Lambda)'), 'S E', t('每个 /api 路由在任何其他操作之前先检查签名会话；唯一的 POST 还要求同源 Origin', 'Every /api route checks the signed session before anything else; the one POST also needs a same-site Origin')],
+  ['', 'T I', t('所有放入 SQL 的值都来自固定列表、严格格式或经过转义；错误信息是固定文本；响应 no-store', 'Every value placed in SQL comes from a fixed list, a strict pattern or is escaped; error messages are fixed text; responses are no-store')],
+  ['', 'D', t('保留并发为 20：洪水请求无法占用其他应用的 Lambda 并发，超出部分返回 429', 'Reserved concurrency of 20: a flood cannot take other apps’ Lambda concurrency; calls over it get 429')],
+  [t('Athena 与 Glue', 'Athena and Glue'), 'T D', t('角色只能读取；工作组强制每次查询最多扫描 1 GB；只能在自己的工作组中运行', 'The role can only read; the workgroup enforces a 1 GB scan cap per query; queries run only in its own workgroup')],
+  [t('日志存储桶与分区器', 'Log bucket and partitioner'), 'T I', t('只有本账号的日志传输可以写入 raw-v2/；分区器只保留 dl_vid Cookie；禁止公开访问、加密、仅限 HTTPS', 'Only this account’s log delivery can write raw-v2/; the partitioner keeps only the dl_vid cookie; public access blocked, encrypted, HTTPS only')],
+  [t('定时 Lambda（机器人检查、网络列表、城市库、统计、合并）', 'Scheduled Lambdas (bot check, network list, city database, stats, merge)'), 'T E', t('下载地址是固定常量（无 SSRF）；下载内容在使用前检查格式和大小；每个角色只能访问自己的前缀', 'Download URLs are constants (no SSRF); downloads are checked for format and size before use; each role reaches only its own prefixes')],
+]));
+
+add('h2', t('拒绝钱包（每小时最高费用）', 'Denial of wallet (most cost per hour)'));
+root.append(stats([
+  [t('20 个', '20'), t('仪表板 Lambda 的最大并发数', 'most dashboard Lambda runs at once'), 'lambda'],
+  ['1 GB', t('每次查询最多扫描的数据量', 'most data scanned per query'), 'athena'],
+  [t('每天 10 美元', '$10 a day'), t('超过即发送邮件提醒（全账号）', 'account-wide spend that triggers an email alert'), 'budget'],
+]));
+root.append(table([t('攻击', 'Attack'), t('每小时最高费用', 'Most per hour'), t('上限', 'What caps it')], [
+  [t('大量未认证的 /api 或 /auth 调用', 'Unauthenticated /api or /auth flood'), t('Lambda 约 2 美元（20 个并发、512 MB、约 720 万次调用）', 'Lambda about $2 (20 at once, 512 MB, about 7.2 million calls)'), t('保留并发 20，超出部分返回 429', 'Reserved concurrency 20; the rest get 429')],
+  [t('对任何网站或 /t/e 的请求洪水（每秒 1 万次）', 'Request flood on any site or /t/e (10,000 a second)'), t('CloudFront 约 36–60 美元，日志约 5 美元', 'CloudFront about $36–60, logs about $5'), t('没有硬上限（未使用 WAF，管理员的选择）；每日预算提醒会在数小时内发出邮件', 'No hard cap (no WAF, the owner’s choice); the daily budget alert emails within hours')],
+  [t('用被盗会话发起昂贵的 Athena 查询', 'Expensive Athena queries with a stolen session'), t('理论上约 90 美元（25 个并行查询 × 1 GB），按当前数据量约 1 美元', 'About $90 in theory (25 parallel queries × 1 GB); about $1 at today’s data size'), t('需要会话；每次查询 1 GB 上限；会话最长 12 小时', 'Needs a session; 1 GB per query; sessions last at most 12 hours')],
+  [t('未登录访客刷新首页', 'Guests reloading the home page'), t('仅 CloudFront 费用', 'CloudFront only'), t('读取预先计算的 stats/*.json，从不启动查询', 'They read pre-computed stats/*.json and never start a query')],
+]));
+
+add('h2', t('线上渗透测试（2026 年 11 月 3 日）', 'Live penetration test (3 November 2026)'));
+add('p', t('共 351 项检查，全部通过。脚本在仓库的 scripts/pentest/ 中，任何人都可以用 README 中的命令重新运行：unauth.sh（185 项，无需账号）、auth.js（106 项 + 3 项存储型 XSS，使用 10 分钟的测试会话）、beacon.sh（28 + 29 项，用 Athena 核对日志）。', '351 checks, all passing. The scripts are in scripts/pentest/ in the repo and can be rerun with the commands in the README: unauth.sh (185, no account needed), auth.js (106 + 3 stored XSS, with a 10-minute test session) and beacon.sh (28 + 29, checking the logs in Athena).'));
+const D = '2026-11-03';
+root.append(table([t('测试', 'Test'), t('预期', 'Expected'), t('实际', 'Actual'), t('日期', 'Date')], [
+  [t('TLS 1.1；http://', 'TLS 1.1; http://'), t('拒绝；301 到 https', 'Refused; 301 to https'), t('拒绝（TLS 1.3 正常）；301', 'Refused (TLS 1.3 works); 301'), D],
+  [t('6 个路径上的安全响应头', 'Security headers on 6 paths'), t('CSP、HSTS、nosniff、DENY、COOP、Permissions-Policy', 'CSP, HSTS, nosniff, DENY, COOP, Permissions-Policy'), t('全部存在', 'All present'), D],
+  [t('20 个隐藏或源文件（.git、.env、source map、package.json、cdk.json…）', '20 hidden or source files (.git, .env, source maps, package.json, cdk.json…)'), '403 / 404', t('403 或 404，无目录列表', '403 or 404, no listing'), D],
+  [t('13 个 API 路由，无会话', '13 API routes without a session'), '401', '401', D],
+  [t('10 种伪造会话：替换载荷、过期、无 exp、无 typ、登录令牌、错误密钥、截断签名、空用户、多余段、伪造 Cookie 在前', '10 forged sessions: swapped payload, expired, no exp, no typ, sign-in token, wrong key, truncated MAC, empty user, extra segment, forged cookie first'), '401', '401', D],
+  [t('使用测试会话访问 43 个路由和部分', '43 routes and parts with a test session'), '200', '200', D],
+  [t('30 个注入载荷：q、site、country、bots、range、part、list、from、to、ip、visitor、path 中的引号、注释、换行、__proto__', '30 injection payloads: quotes, comments, newlines and __proto__ in q, site, country, bots, range, part, list, from, to, ip, visitor, path'), t('400，不含 SQL、Athena、堆栈或 ARN', '400 with no SQL, Athena, stack or ARN'), t('400，无内部信息', '400, no internals'), D],
+  [t('作为数据处理的值：路径中的引号，搜索中的括号和 %_，limit 中的 SQL', 'Values treated as data: quotes in a path, brackets and %_ in search, SQL in limit'), t('200，按字面匹配', '200, matched literally'), t('200，0 行；limit=1', '200, 0 rows; limit=1'), D],
+  [t('超大和负数的 limit/offset', 'Huge and negative limit/offset'), t('限制在 1–100 / 0–100000', 'Clamped to 1–100 / 0–100000'), t('100 / 100000；1 / 0', '100 / 100000; 1 / 0'), D],
+  [t('登录：redirect_uri、PKCE、state、nonce；Microsoft 用外部回调地址', 'Sign-in: redirect_uri, PKCE, state, nonce; Microsoft with a foreign callback'), t('固定、S256、随机；不跳转', 'Fixed, S256, random; no redirect'), t('与预期一致', 'As expected'), D],
+  [t('回调中的反射型 XSS 和 CRLF；退出登录的 next=', 'Reflected XSS and CRLF in the callback; logout next='), t('已转义，无新响应头，无开放重定向', 'Escaped, no new header, no open redirect'), t('与预期一致', 'As expected'), D],
+  [t('POST /api/bots/run，有效会话 + 外部、相似、null、http 或缺失的 Origin', 'POST /api/bots/run with a valid session and a foreign, look-alike, null, http or missing Origin'), '403', '403', D],
+  [t('有会话时 PUT/DELETE/PATCH/POST /api/me', 'PUT/DELETE/PATCH/POST /api/me with a session'), '405', '405', D],
+  [t('CORS：外部 Origin 和预检', 'CORS: foreign Origin and preflight'), t('无 Access-Control-Allow-Origin', 'No Access-Control-Allow-Origin'), t('无', 'None'), D],
+  [t('缓存投毒（X-Forwarded-Host）与缓存欺骗（/api/me.css、/api/me/x.js）', 'Cache poisoning (X-Forwarded-Host) and deception (/api/me.css, /api/me/x.js)'), t('no-store；无会话时 401 且无用户数据', 'no-store; 401 without a session, no user data'), t('与预期一致', 'As expected'), D],
+  [t('存储型 XSS：路径、User-Agent、Referrer 中的 <script> 和 onerror，在访客页面查看', 'Stored XSS: <script> and onerror in the path, user agent and referrer, viewed on the visitor page'), t('显示为文本，不执行', 'Shown as text, nothing runs'), t('仅文本；页面中没有注入的元素或事件属性', 'Text only; no injected element or event attribute in the page'), D],
+  [t('28 个页面上报：伪造/相似/userinfo/http Origin、未知网站、控制字符、换行注入、超长、错误编码、越界字段、伪造 dl_vid、重复 h、POST', '28 page reports: forged/look-alike/userinfo/http Origin, unknown site, control characters, newline injection, too long, bad encoding, out-of-range fields, forged dl_vid, repeated h, POST'), t('全部 204；恰好 8 个被记录且字段正确，20 个被丢弃', 'All 204; exactly 8 logged with the right fields, 20 dropped'), t('与预期一致（Athena 核对）', 'As expected (checked in Athena)'), D],
+  [t('日志中 dl_vid 以外的 Cookie', 'Cookies other than dl_vid in the logs'), '0', '0', D],
+  [t('访客 ID 函数（每个通过它提供页面的网站）', 'Visitor ID function (every site serving pages through it)'), t('新 Cookie；注入的值被替换；有效值保留', 'Fresh cookie; injected value replaced; valid value kept'), t('与预期一致', 'As expected'), D],
+  [t('直接访问 Lambda URL（含伪造 SigV4）、3 个存储桶、*.cloudfront.net', 'Lambda URL direct (also with a forged SigV4), the 3 buckets, *.cloudfront.net'), '403', '403', D],
+  [t('60 个并行未认证调用', '60 parallel unauthenticated calls'), t('401 或 429', '401 or 429'), t('60 × 401', '60 × 401'), D],
+]));
+
+add('h2', t('代码审查（2026 年 11 月 3 日）', 'Code review (3 November 2026)'));
+const review = document.createElement('ul');
+for (const text of [
+  t('逐一阅读了每个处理程序：路由、登录、查询构建、公开统计、分区器、机器人检查、网络列表、城市库、日志合并和三个边缘函数。', 'Every handler was read: the router, sign-in, query building, public stats, partitioner, bot check, network list, city database, log merge and the three edge functions.'),
+  t('输入：放入 SQL 的每个值都来自固定列表（用 Object.hasOwn 查找）、严格格式或经过转义；错误信息是固定文本，500 只返回“Internal error”。', 'Input: every value placed in SQL comes from a fixed list (looked up with Object.hasOwn), a strict pattern or is escaped; error messages are fixed text and a 500 says only “Internal error”.'),
+  t('授权：每个 /api 路由在任何其他操作之前检查会话。前端从不使用 innerHTML、eval 或 document.write。', 'Authorization: every /api route checks the session before anything else. The front end never uses innerHTML, eval or document.write.'),
+  t('机密：gitleaks 扫描全部 60 个提交，无泄露；账号 ID、租户 ID 和客户端 ID 在历史中出现 0 次；密钥只存放在加密的 SSM 参数中。', 'Secrets: gitleaks over all 60 commits found no leaks; the account, tenant and client IDs appear 0 times in the history; secrets live only in encrypted SSM parameters.'),
+  t('依赖项：npm audit --omit=dev 有 2 条中危（CDK 库内置的 minimatch ReDoS，只在部署时处理本仓库自己的路径，上游尚无修复）；完整 npm audit 另有 22 条（4 低、18 中），都在测试工具中。生产环境不运行任何第三方包。', 'Dependencies: npm audit --omit=dev reports 2 moderate (a minimatch ReDoS bundled in the CDK library, run only at deploy time on this repo’s own paths; no upstream fix yet); the full npm audit adds 22 (4 low, 18 moderate), all in test tools. No third-party package runs in production.'),
+  t('IAM：每项授权都限定到自己的前缀、工作组或参数；唯一的 * 资源是 kms:Decrypt，并通过 kms:ViaService 限定为 SSM。', 'IAM: every grant is scoped to its own prefixes, workgroup or parameters; the only * resource is kms:Decrypt, limited by kms:ViaService to SSM.'),
+  t('存储：所有存储桶禁止公开访问、S3 托管加密、拒绝明文 HTTP、设置了生命周期；所有 Lambda 日志组都设置了保留期（一周或一个月）。', 'Storage: every bucket blocks public access, uses S3-managed encryption, rejects plain HTTP and has a lifecycle; every Lambda log group has a retention period (one week or one month).'),
+  t('测试：326 个单元测试，包括会话、注入、Cookie 精简、上报校验和 IAM 范围；本次的两项修复各自新增了回归测试。', 'Tests: 326 unit tests, covering sessions, injection, cookie stripping, report checks and IAM scope; each of this review’s two fixes added a regression test.'),
+]) {
+  const li = document.createElement('li');
+  li.textContent = text;
+  review.append(li);
+}
+root.append(review);
+root.append(table(['ID', t('严重性', 'Severity'), t('发现', 'Finding'), t('状态', 'Status')], [
+  ['F1', MEDIUM, t('仪表板 Lambda 与其他应用共享账号的 Lambda 并发，未认证的洪水请求可以占满它', 'The dashboard Lambda shared the account’s Lambda concurrency with the other apps, so an unauthenticated flood could use it all up'), FIXED],
+  ['F2', MEDIUM, t('没有覆盖本应用的费用上限或提醒（现有预算只覆盖其他应用）', 'No cost cap or alert covered this app (the existing budgets cover another app only)'), { text: t('✓ 已加提醒；不使用 WAF（已接受）', '✓ Alert added; no WAF (accepted)'), className: 'status fixed' }],
+  ['F3', LOW, t('CDK 库内置的 minimatch 有 ReDoS 公告', 'A ReDoS advisory in the minimatch bundled with the CDK library'), t('已接受（仅部署时）', 'Accepted (deploy time only)')],
+  ['F4', LOW, t('被拒绝登录者的账号名和 ID 写入 CloudWatch', 'The account name and ID of refused sign-ins are written to CloudWatch'), t('已接受（一个月，仅管理员可读）', 'Accepted (one month, owner only)')],
+]));
+
+root.append(more(t('第一次审查的渗透测试（2026 年 10 月 9 日）', 'Penetration test of the first review (9 October 2026)'), table([t('测试', 'Test'), t('结果', 'Result'), t('状态', 'Status')], [
   [t('HTTP 降级', 'HTTP downgrade'), t('http:// 返回 301 跳转到 https://；HSTS 有效期为一年', 'http:// answers 301 to https://; HSTS is set for one year'), PASS],
   [t('旧版 TLS', 'Old TLS versions'), t('拒绝 TLS 1.0 和 1.1；TLS 1.2 和 1.3 正常', 'TLS 1.0 and 1.1 are refused; TLS 1.2 and 1.3 work'), PASS],
   [t('安全响应头', 'Security headers'), t('CSP 只允许来自本站的脚本（无内联脚本）；禁止被嵌入框架；nosniff；不发送 Referrer', "CSP allows scripts only from the site itself (no inline scripts); framing is denied; nosniff; no referrer sent"), PASS],
@@ -85,7 +181,7 @@ root.append(table([t('测试', 'Test'), t('结果', 'Result'), t('状态', 'Stat
   [t('错误页面样式', 'Error page styling'), t('错误页面曾使用被 CSP 拦截的内联样式，现在改用样式表', 'The error page used an inline style that the CSP blocked; it now uses the stylesheet'), FIXED],
   [t('公开仓库中的机密', 'Secrets in the public repo'), t('扫描了完整的 git 历史：没有机密、密钥、账号 ID、租户 ID 或客户端 ID', 'Full git history scanned: no secrets, keys, account, tenant or client IDs'), PASS],
   [t('依赖项', 'Dependencies'), t('生产环境不运行任何第三方包；34 条安全公告只影响本地测试工具', 'No third-party packages run in production; 34 advisories affect only the local test tools'), PASS],
-]));
+])));
 
 add('h2', t('威胁模型', 'Threat model'));
 root.append(table([t('场景', 'Scenario'), t('剩余风险', 'Residual risk'), t('控制措施', 'Controls')], [
@@ -100,7 +196,7 @@ root.append(table([t('场景', 'Scenario'), t('剩余风险', 'Residual risk'), 
   [t('仪表板被嵌入框架进行点击劫持', 'The dashboard is framed for clickjacking'), LOW, t("frame-ancestors 'none'、X-Frame-Options DENY 和 Cross-Origin-Opener-Policy", "frame-ancestors 'none', X-Frame-Options DENY and Cross-Origin-Opener-Policy")],
   [t('公开的托管网络列表被篡改，以隐藏真实访客或注入代码', 'A public hosting-network list is tampered with to hide real visitors or inject code'), LOW, t('只有 ASN（范围内的整数）会进入 SQL；名称被精简为纯文本并用 textContent 显示；下载内容过小或下载失败时保留上一份；Cloudflare 和 iCloud Private Relay 始终排除；它只影响机器人筛选', 'Only ASNs (whole numbers in range) reach SQL; names are reduced to plain text and shown with textContent; too-small or failed downloads keep the last copy; Cloudflare and iCloud Private Relay are always excluded; it only affects the bot filter')],
   [t('伪造的 dl_vid Cookie 或脚本请求扭曲统计数字', 'Fake dl_vid cookies or scripted requests distort the numbers'), MEDIUM, t('校验 Cookie 格式和客户端提示（client hints），并默认隐藏机器人；这些数据仅用于分析，不授予任何访问权限', 'Cookie format and client hints are validated and bots are hidden by default; the data is analytics only and grants no access')],
-  [t('大量请求推高账单', 'Request floods run up the bill'), LOW, t('查询需要登录；每次查询扫描达到 1 GB 即停止；重复查询在 5 分钟内复用结果；未认证的调用以很低的成本返回 401', 'Queries need sign-in; each query stops at 1 GB scanned; repeat queries reuse results for 5 minutes; unauthenticated calls return 401 cheaply')],
+  [t('大量请求推高账单', 'Request floods run up the bill'), MEDIUM, t('查询需要登录；每次查询扫描达到 1 GB 即停止；重复查询在 5 分钟内复用结果；未认证的调用以很低的成本返回 401；仪表板 Lambda 最多 20 个并发；全账号每日预算超过 10 美元时发送邮件', 'Queries need sign-in; each query stops at 1 GB scanned; repeat queries reuse results for 5 minutes; unauthenticated calls return 401 cheaply; the dashboard Lambda runs at most 20 at once; an account-wide daily budget emails over $10')],
   [t('机密通过公开仓库泄露', 'Secrets leak through the public repository'), LOW, t('客户端密钥、租户 ID 和客户端 ID 存放在加密的 SSM 参数中，运行时读取；已扫描 git 历史', 'The client secret, tenant and client IDs live in encrypted SSM parameters read at run time; git history scanned')],
   [t('有人向日志存储桶写入伪造的日志文件，以植入虚假访问', 'Someone writes forged log files into the log bucket to plant fake visits'), LOW, t('存储桶策略只允许日志传输服务写入，只能写入 raw-v2/，且只限本账号中的传输源（aws:SourceAccount 和 aws:SourceArn）；分区器只接受 raw-v2/<site>/YYYY/MM/DD/ 下的文件，并按列名重写其中的列', 'The bucket policy lets only the log delivery service write, only to raw-v2/, only for delivery sources in this account (aws:SourceAccount and aws:SourceArn); the partitioner only accepts files under raw-v2/<site>/YYYY/MM/DD/ and rewrites their columns by name')],
   [t('利用记录下的访客 ID、国家或城市攻击仪表板', 'The logged visitor ID, country or city is used to attack the dashboard'), LOW, t('ID 由我们自己的函数在校验格式后写入；查询只接受由 8 到 40 个小写字母和数字组成的 ID，只接受纯数字的 ASN；城市以十六进制记录，只有解码后仅含字母、数字、空格和 . \' ’ ( ) , -（最多 60 个字符）时才保留；DB-IP 城市在保存前和查询时都要通过同样的检查；国家和城市都用 textContent 显示', 'The ID is written by our own function after it checks the format; queries accept it only if it is 8 to 40 lowercase letters and digits, the ASN only if it is digits; the city is logged as hex and kept only if it decodes to letters, digits, spaces and . \' ’ ( ) , - (at most 60); DB-IP cities pass the same check before they are saved and again in queries; countries and cities are shown with textContent')],
@@ -118,7 +214,9 @@ root.append(table([t('场景', 'Scenario'), t('剩余风险', 'Residual risk'), 
 add('h2', t('已接受的剩余风险', 'Accepted residual risks'));
 const risks = document.createElement('ul');
 for (const text of [
-  t('没有 WAF 或速率限制。未认证的 /api 或 /auth 调用仍会启动 Lambda，由它以极低的成本返回 401。', 'There is no WAF or rate limit. Unauthenticated calls to /api or /auth still start the Lambda, which answers 401 for a tiny cost.'),
+  t('没有 WAF 或速率限制（管理员的选择）。对 CloudFront 的请求洪水没有硬性费用上限（每秒 1 万次约每小时 40–65 美元）；每日预算提醒会在数小时内发出邮件，但不会阻止请求。仪表板 Lambda 最多 20 个并发。', 'There is no WAF or rate limit (the owner’s choice). A request flood on CloudFront has no hard cost cap (about $40–65 an hour at 10,000 a second); the daily budget alert emails within hours but stops nothing. The dashboard Lambda runs at most 20 at once.'),
+  t('页面上报的 Origin 检查可以在浏览器之外伪造；伪造的上报只能扭曲阅读统计。', 'The page report Origin check can be faked outside a browser; fake reports can only skew reading stats.'),
+  t('被拒绝的登录会把账号名和 ID 写入 CloudWatch，保留一个月，供管理员查看谁尝试过登录。', 'Refused sign-ins write the account name and ID to CloudWatch for one month, so the owner can see who tried.'),
   t('访客 ID 并非密码学意义上的随机值，任何人都可以设置自己的 dl_vid。它们用于统计访客，而非用于安全。', 'Visitor IDs are not cryptographically random and anyone can set their own dl_vid. They are for counting visitors, not for security.'),
   t('日志中包含 IP 地址、访客 ID 以及每个 IP 的国家、城市和网络（属于个人数据），最长保存一年。', 'Logs contain IP addresses, visitor IDs and the country, city and network of each IP (personal data) for up to one year.'),
   t('会话无法在服务器端撤销；被盗的 Cookie 在过期前一直有效（最长 12 小时）。', 'Sessions cannot be revoked on the server; a stolen cookie works until it expires (at most 12 hours).'),
@@ -127,7 +225,7 @@ for (const text of [
   t('未知页面返回 403 而不是 404，因为存储桶不允许列出内容。', 'Unknown pages return 403 rather than 404, because the bucket does not allow listing.'),
   t('HSTS 不覆盖子域名，也未加入预加载列表，因为 dliu.com 的其他子域名是单独管理的。', 'HSTS does not cover subdomains and is not preloaded, because other dliu.com subdomains are managed separately.'),
   t('域名检查依赖账号名，而账号名只有目录管理员才能更改。', 'The domain check relies on the account name, which only directory administrators can change.'),
-  t('本地测试工具有 34 条已知安全公告；它们从不在生产环境中运行。', 'The local test tools have 34 known advisories; they never run in production.'),
+  t('本地测试工具有 22 条已知安全公告，CDK 库内置的 minimatch 有 2 条中危公告（仅部署时运行）；它们都不在生产环境中运行。', 'The local test tools have 22 known advisories and the minimatch bundled with the CDK library has 2 moderate ones (deploy time only); none runs in production.'),
   t('没有 security.txt 文件。', 'There is no security.txt file.'),
 ]) {
   const li = document.createElement('li');
@@ -171,6 +269,7 @@ detailList('AWS', [
   t('机器人检查 Lambda 可以读取 logs/ 和 hosting/，读写 bots/、reputation/、bot-state/ 和 abuseipdb/runs/，读取 AbuseIPDB 密钥，并在 traffic 工作组中运行查询', 'The bot check Lambda can read logs/ and hosting/, read and write bots/, reputation/, bot-state/ and abuseipdb/runs/, read the AbuseIPDB key and run queries in the traffic workgroup'),
   t('仪表板 Lambda 可以读取 logs/、archive/、bots/、reputation/ 和 abuseipdb/，只能写入 bots/status.json，并可启动机器人检查 Lambda', 'The dashboard Lambda can read logs/, archive/, bots/, reputation/ and abuseipdb/, write only bots/status.json and start the bot check Lambda'),
   t('日志合并 Lambda 可以读取 logs/、bots/ 和 archive/，只能写入 archive/，只能删除 logs/ 下的文件；它不能运行查询', 'The log merge Lambda can read logs/, bots/ and archive/, write only archive/ and delete only logs/; it cannot run queries'),
+  t('仪表板 Lambda 保留 20 个并发（超出返回 429）；名为 account-daily-spending 的全账号预算在一天花费超过 10 美元时通过本应用的 SNS 主题发送邮件，只有本账号的 AWS Budgets 可以向该主题发布', 'The dashboard Lambda has 20 reserved concurrent runs (429 beyond); an account-wide budget, account-daily-spending, emails through this app’s SNS topic when a day passes $10, and only this account’s AWS Budgets may publish to that topic'),
 ]);
 details.append(document.createElement('h3'));
 details.lastChild.textContent = t('延伸阅读', 'Further reading');
@@ -194,5 +293,5 @@ root.append(more(t('更多技术细节（文字）', 'More technical details (te
 
 const footer = document.createElement('p');
 footer.className = 'source';
-footer.textContent = t('源代码：dliu-com/traffic-monitor · 另见“技术架构”和“成本”选项卡。', 'Source: dliu-com/traffic-monitor · See also the Architecture and Running costs tabs.');
+footer.textContent = t('源代码：dliu-com/traffic-monitor（安全测试：scripts/pentest/）· 另见“技术架构”和“成本”选项卡。', 'Source: dliu-com/traffic-monitor (security tests: scripts/pentest/) · See also the Technical architecture and Cost tabs.');
 root.append(footer);
