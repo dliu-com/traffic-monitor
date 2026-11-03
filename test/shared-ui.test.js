@@ -148,7 +148,7 @@ test('the language follows a saved choice, else the browser (any zh-* is Chinese
 });
 
 test('every page loads i18n.js first and the switcher goes last in the header nav', () => {
-  expect(read('web/dash.js')).toMatch(/^(\/\/.*\n)*import '\.\/i18n\.js';/);
+  expect(read('web/dash.js')).toMatch(/^(\/\/.*\n)*import (\{[^}]*\} from )?'\.\/i18n\.js';/);
   expect(read('web/docs.js')).toMatch(/^import \{ t \} from '\.\/i18n\.js';/);
   for (const name of APP_PAGES) {
     expect(read(`web/${name === 'index' ? 'home' : name}.js`)).toMatch(/from '\.\/dash\.js';/);

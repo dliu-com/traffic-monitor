@@ -1,13 +1,13 @@
 // Shared helpers for the dashboard pages (All sites, Site, IP).
 // Every value from the logs is attacker-controlled, so it is only ever set with textContent.
-import './i18n.js';
+import { t, locale, translateError } from './i18n.js';
 import { describeBrowser, describeDevice } from './ua.js';
 
 export { describeBrowser, describeDevice };
 // The client hints that go with a user agent column: last_ua → last_hints, ua → hints.
 const hintsKey = (key) => key.replace(/ua$/, 'hints');
 export const $ = (id) => document.getElementById(id);
-export const number = new Intl.NumberFormat();
+export const number = new Intl.NumberFormat(locale);
 // public: not signed in, so the page shows the pre-computed public figures (stats/<range>.json) only.
 // defaultRange: the period when the URL has none (the Bots page uses 3d).
 export const state = { siteHosts: {}, hosting: {}, public: false, defaultRange: '7d' };
@@ -36,7 +36,10 @@ export const IP_PATTERN = /^[0-9a-fA-F:.]{2,45}$/;
 export const VISITOR_PATTERN = /^[a-z0-9]{8,40}$/;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RANGES = [['24h', '24 hours'], ['3d', '3 days'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days']];
+const RANGES = [
+  ['24h', t('24 小时', '24 hours')], ['3d', t('3 天', '3 days')], ['7d', t('7 天', '7 days')],
+  ['30d', t('30 天', '30 days')], ['90d', t('90 天', '90 days')],
+];
 // The buttons a period bar shows unless the page asks for others (the Bots page shows 24h and 3d).
 const DEFAULT_RANGES = ['24h', '7d', '30d', '90d'];
 // The public figures are pre-computed once a day for these ranges only.
@@ -78,18 +81,22 @@ export function botToggle(onChange) {
     setIncludeBots(input.checked);
     onChange();
   });
-  return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the next bot check (every 6 hours). Bot records are kept for the last 3 days only. See the Bots page.' }, [input, ' Include bots']);
+  const title = t(
+    '机器人：爬虫 User-Agent 立即识别；托管网络、扫描器、AbuseIPDB 举报，以及从不加载页面脚本或样式的客户端，在下一次机器人检查（每 6 小时一次）后识别。机器人记录仅保留最近 3 天。详见“机器人”页面。',
+    'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the next bot check (every 6 hours). Bot records are kept for the last 3 days only. See the Bots page.',
+  );
+  return el('label', { class: 'bot-toggle', title }, [input, t(' 包括机器人', ' Include bots')]);
 }
 
 // Why a request or IP counts as a bot (see /docs#bot-detection).
 export const BOT_REASONS = {
-  agent: 'crawler or script (user agent)',
-  hosting: 'cloud or hosting network',
-  probe: 'scanned for weak spots',
-  abuse: 'reported on AbuseIPDB',
-  headless: 'never loaded scripts, styles or the cookie',
+  agent: t('爬虫或脚本（User-Agent）', 'crawler or script (user agent)'),
+  hosting: t('云或托管网络', 'cloud or hosting network'),
+  probe: t('扫描过漏洞', 'scanned for weak spots'),
+  abuse: t('在 AbuseIPDB 上被举报', 'reported on AbuseIPDB'),
+  headless: t('从未加载脚本、样式或 Cookie', 'never loaded scripts, styles or the cookie'),
 };
-export const botReasonText = (reasons) => String(reasons || '').split(',').filter((r) => Object.hasOwn(BOT_REASONS, r)).map((r) => BOT_REASONS[r]).join('; ');
+export const botReasonText = (reasons) => String(reasons || '').split(',').filter((r) => Object.hasOwn(BOT_REASONS, r)).map((r) => BOT_REASONS[r]).join(t('；', '; '));
 
 // The empty-body hash CloudFront's origin access control needs for a POST to the Lambda URL.
 const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -97,7 +104,7 @@ const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b78
 // "Check bots now": starts the bot check (today and the 3 days before) and shows when it last ran.
 // onDone reloads the page's widgets when a run this page is watching finishes.
 export function botCheck(onDone) {
-  const button = el('button', { type: 'button', class: 'dl-button bot-check', text: 'Check bots now' });
+  const button = el('button', { type: 'button', class: 'dl-button bot-check', text: t('立即检查机器人', 'Check bots now') });
   const info = el('span', { class: 'bot-check-info' });
   let timer;
   let watching = false;
@@ -105,15 +112,24 @@ export function botCheck(onDone) {
     clearTimeout(timer);
     const running = status && status.state === 'running';
     button.disabled = running;
-    button.textContent = running ? 'Checking bots…' : 'Check bots now';
-    if (!status) info.textContent = 'Bots not checked yet';
-    else if (running) info.textContent = `Started ${formatTime(status.started)}; takes about a minute`;
-    else if (status.state === 'failed') info.textContent = `Last check failed ${formatTime(status.finished || status.started)}`;
-    else {
+    button.textContent = running ? t('正在检查机器人…', 'Checking bots…') : t('立即检查机器人', 'Check bots now');
+    if (!status) info.textContent = t('尚未检查过机器人', 'Bots not checked yet');
+    else if (running) {
+      const started = formatTime(status.started);
+      info.textContent = t(`已于 ${started} 开始，约需一分钟`, `Started ${started}; takes about a minute`);
+    } else if (status.state === 'failed') {
+      const when = formatTime(status.finished || status.started);
+      info.textContent = t(`上次检查失败（${when}）`, `Last check failed ${when}`);
+    } else {
       const left = status.summary && status.summary.abuseipdb && status.summary.abuseipdb.left;
-      info.textContent = `Bots checked ${formatTime(status.finished)}${left ? ` · ${fmt(left)} IPs wait for tomorrow's AbuseIPDB allowance` : ''}`;
+      const finished = formatTime(status.finished);
+      info.textContent = t(
+        `机器人检查于 ${finished}${left ? ` · ${fmt(left)} 个 IP 等待明天的 AbuseIPDB 额度` : ''}`,
+        `Bots checked ${finished}${left ? ` · ${fmt(left)} IPs wait for tomorrow's AbuseIPDB allowance` : ''}`,
+      );
     }
-    info.title = status && status.summary ? `Checked ${status.summary.from} to ${status.summary.to} (UTC)` : '';
+    info.title = status && status.summary
+      ? t(`检查范围：${status.summary.from} 至 ${status.summary.to}（UTC）`, `Checked ${status.summary.from} to ${status.summary.to} (UTC)`) : '';
     if (running) timer = setTimeout(poll, 10000);
     else if (watching) {
       watching = false;
@@ -134,7 +150,7 @@ export function botCheck(onDone) {
       else poll();
     } catch (error) {
       button.disabled = false;
-      setStatus(error.message, true);
+      setStatus(translateError(error.message), true);
     }
   });
   poll();
@@ -142,8 +158,9 @@ export function botCheck(onDone) {
 }
 // Wording for notes and hints that depends on the switch.
 export const botsNote = () => (showBots()
-  ? 'Bots are included and highlighted (bot records are kept for the last 3 days only).'
-  : hasToggle ? 'Bots are left out; tick Include bots to see them.' : 'Bots are left out (signed-in users can see them on the Bots page).');
+  ? t('已包括机器人并高亮显示（机器人记录仅保留最近 3 天）。', 'Bots are included and highlighted (bot records are kept for the last 3 days only).')
+  : hasToggle ? t('已排除机器人；勾选“包括机器人”即可查看。', 'Bots are left out; tick Include bots to see them.')
+    : t('已排除机器人（登录用户可在“机器人”页面查看）。', 'Bots are left out (signed-in users can see them on the Bots page).'));
 
 export async function api(path) {
   if (state.public) return publicApi(path);
@@ -171,7 +188,7 @@ export function handleError(error) {
     setStatus('');
     return;
   }
-  setStatus(error.message, true);
+  setStatus(translateError(error.message), true);
 }
 
 // publicView: when not signed in, show the public figures instead of the sign-in box.
@@ -198,7 +215,7 @@ const statsFiles = new Map();
 function statsFile(range) {
   if (!statsFiles.has(range)) {
     const file = fetch(`/stats/${range}.json`, { headers: { accept: 'application/json' } }).then(async (response) => {
-      if (!response.ok) throw new Error('The public figures are not available right now. Please try again later.');
+      if (!response.ok) throw new Error(t('公开数据暂时不可用，请稍后再试。', 'The public figures are not available right now. Please try again later.'));
       const data = await response.json();
       data.records = data.rows.map((row) => Object.fromEntries(data.columns.map((column, i) => [column, row[i]])));
       return data;
@@ -259,13 +276,16 @@ async function startPublic(render) {
     setStatus('');
     await render();
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(translateError(error.message), true);
   }
 }
 
 // " Public figures, updated …" for the period note (public mode only).
 export const updatedNote = (filters) => (filters.generated
-  ? ` Public totals for whole days up to yesterday (UTC), updated ${formatTime(filters.generated)}; sign in for today, custom periods and details.` : '');
+  ? t(
+    `公开数据为截至昨天（UTC）的整日合计，更新于 ${formatTime(filters.generated)}；登录可查看今天、自定义时段和详情。`,
+    ` Public totals for whole days up to yesterday (UTC), updated ${formatTime(filters.generated)}; sign in for today, custom periods and details.`,
+  ) : '');
 
 // Loads one widget on its own: shows a spinner over `node` until its data arrives,
 // and drops answers that come back after a newer request (e.g. the period changed again).
@@ -389,19 +409,21 @@ const zone = () => {
 };
 
 export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
-  const bar = el('div', { class: 'dl-segmented period', role: 'group', 'aria-label': 'Period' });
+  const bar = el('div', { class: 'dl-segmented period', role: 'group', 'aria-label': t('时段', 'Period') });
   const custom = el('form', { class: 'custom-dates', hidden: true, novalidate: true });
   const timeInput = (name, label) => el('input', {
     type: 'text', name, required: true, inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false',
-    placeholder: 'YYYY-MM-DD HH:MM', 'aria-label': `${label} (YYYY-MM-DD HH:MM, local time)`, maxlength: 16, size: 16,
+    placeholder: 'YYYY-MM-DD HH:MM',
+    'aria-label': t(`${label}（YYYY-MM-DD HH:MM，本地时间）`, `${label} (YYYY-MM-DD HH:MM, local time)`),
+    maxlength: 16, size: 16,
   });
-  const from = timeInput('from', 'From');
-  const to = timeInput('to', 'To');
+  const from = timeInput('from', t('开始', 'From'));
+  const to = timeInput('to', t('结束', 'To'));
   custom.append(
-    el('label', {}, ['From ', from]),
-    el('label', {}, ['To ', to]),
-    el('button', { type: 'submit', class: 'dl-button dl-button-primary', text: 'Show' }),
-    el('span', { class: 'zone', text: `your local time (${zone()})` }),
+    el('label', {}, [t('开始 ', 'From '), from]),
+    el('label', {}, [t('结束 ', 'To '), to]),
+    el('button', { type: 'submit', class: 'dl-button dl-button-primary', text: t('显示', 'Show') }),
+    el('span', { class: 'zone', text: t(`本地时间（${zone()}）`, `your local time (${zone()})`) }),
   );
   const buttons = [];
 
@@ -415,7 +437,7 @@ export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
     }
   }
 
-  for (const [key, label] of [...RANGES.filter(([key]) => ranges.includes(key)), ['custom', 'Custom…']]) {
+  for (const [key, label] of [...RANGES.filter(([key]) => ranges.includes(key)), ['custom', t('自定义…', 'Custom…')]]) {
     const signedInOnly = key === 'custom' || !PUBLIC_RANGES.includes(key);
     const button = el('button', { type: 'button', 'data-range': key, text: label, class: signedInOnly ? 'private-only' : null });
     button.addEventListener('click', () => {
@@ -444,9 +466,11 @@ export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
     event.preventDefault();
     const start = parseLocal(from.value, false);
     const end = parseLocal(to.value, true);
-    if (!start || !end) return setStatus('Enter dates as YYYY-MM-DD HH:MM, e.g. 2026-10-09 14:30', true);
-    if (end <= start) return setStatus('From must be before To', true);
-    if (end - start > MAX_CUSTOM_DAYS * DAY_MS) return setStatus(`A custom period can be at most ${MAX_CUSTOM_DAYS} days`, true);
+    if (!start || !end) return setStatus(t('请按 YYYY-MM-DD HH:MM 格式输入日期，例如 2026-10-09 14:30', 'Enter dates as YYYY-MM-DD HH:MM, e.g. 2026-10-09 14:30'), true);
+    if (end <= start) return setStatus(t('开始时间必须早于结束时间', 'From must be before To'), true);
+    if (end - start > MAX_CUSTOM_DAYS * DAY_MS) {
+      return setStatus(t(`自定义时段最长 ${MAX_CUSTOM_DAYS} 天`, `A custom period can be at most ${MAX_CUSTOM_DAYS} days`), true);
+    }
     setStatus('');
     setPeriod({ from: toInstant(start), to: toInstant(end) });
     mark();
@@ -460,33 +484,36 @@ export function periodBar(onChange, { ranges = DEFAULT_RANGES } = {}) {
 // ---- countries ----
 let regionNames;
 try {
-  regionNames = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
+  regionNames = new Intl.DisplayNames([locale], { type: 'region', fallback: 'none' });
 } catch {
   regionNames = null;
 }
 const isCode = (code) => typeof code === 'string' && /^[A-Z]{2}$/.test(code);
 export const flag = (code) => (isCode(code) ? String.fromCodePoint(...[...code].map((c) => 0x1f1a5 + c.charCodeAt(0))) : '');
 export function countryName(code) {
-  if (!isCode(code)) return 'Unknown';
+  if (!isCode(code)) return t('未知', 'Unknown');
   return (regionNames && regionNames.of(code)) || code;
 }
 // "🇬🇧 United Kingdom" / "Unknown"
-export const countryLabel = (code) => (isCode(code) ? `${flag(code)} ${countryName(code)}` : 'Unknown');
+export const countryLabel = (code) => (isCode(code) ? `${flag(code)} ${countryName(code)}` : t('未知', 'Unknown'));
 // "🇬🇧 GB" for table cells (the full name goes in the tooltip).
 export const countryShort = (code) => (isCode(code) ? `${flag(code)} ${code}` : '');
-export const UNKNOWN_COUNTRY_HINT = 'No country recorded: requests logged before country logging started, or addresses CloudFront could not place';
+export const UNKNOWN_COUNTRY_HINT = t(
+  '未记录国家/地区：开始记录国家/地区之前的请求，或 CloudFront 无法定位的地址',
+  'No country recorded: requests logged before country logging started, or addresses CloudFront could not place',
+);
 
 // A country dropdown that lists the countries seen in the current period (and site), most visitors first.
 // `scope()` returns the site and period to list; choosing a country updates ?country= and calls onChange.
 export function countrySelect(scope, onChange) {
-  const select = el('select', { class: 'country-select', 'aria-label': 'Filter by country' });
-  const wrap = el('label', { class: 'country-filter' }, [el('span', { text: 'Country' }), select]);
+  const select = el('select', { class: 'country-select', 'aria-label': t('按国家/地区筛选', 'Filter by country') });
+  const wrap = el('label', { class: 'country-filter' }, [el('span', { text: t('国家/地区', 'Country') }), select]);
   let request = 0;
 
   function fill(rows) {
     const current = country();
     const seen = new Set();
-    const options = [el('option', { value: '', text: 'All countries', selected: !current })];
+    const options = [el('option', { value: '', text: t('所有国家/地区', 'All countries'), selected: !current })];
     for (const row of rows) {
       const code = row.country || 'unknown';
       if (!COUNTRY.test(code) || seen.has(code)) continue;
@@ -532,23 +559,23 @@ export function countriesTable(scope) {
       return params;
     },
     pageSize: 10,
-    placeholder: 'Search country code…',
-    empty: 'No visitors in this period',
+    placeholder: t('搜索国家/地区代码…', 'Search country code…'),
+    empty: t('此时段没有访客', 'No visitors in this period'),
     rowClass: (r) => ((r.country || 'unknown') === country() ? 'selected' : null),
     columns: [
       {
-        label: 'Country',
+        label: t('国家/地区', 'Country'),
         value: (r) => countryLabel(r.country === 'unknown' ? null : r.country),
         href: (r) => {
           const q = new URLSearchParams(location.search);
           q.set('country', COUNTRY.test(r.country || '') ? r.country : 'unknown');
           return `${location.pathname}?${q}`;
         },
-        title: (r) => (isCode(r.country) ? `Show only ${countryName(r.country)}` : UNKNOWN_COUNTRY_HINT),
+        title: (r) => (isCode(r.country) ? t(`只显示${countryName(r.country)}`, `Show only ${countryName(r.country)}`) : UNKNOWN_COUNTRY_HINT),
       },
-      { label: 'Visitors', value: (r) => fmt(r.visitors), cls: 'dl-num' },
-      { label: 'Page views', value: (r) => fmt(r.pageviews), cls: 'dl-num' },
-      { label: 'IPs', value: (r) => fmt(r.ips), cls: 'dl-num' },
+      { label: t('访客', 'Visitors'), value: (r) => fmt(r.visitors), cls: 'dl-num' },
+      { label: t('浏览量', 'Page views'), value: (r) => fmt(r.pageviews), cls: 'dl-num' },
+      { label: t('IP', 'IPs'), value: (r) => fmt(r.ips), cls: 'dl-num' },
     ],
   });
 }
@@ -560,14 +587,15 @@ export function countryNote(onChange) {
     const current = country();
     note.hidden = !current;
     if (!current) return;
-    const clear = el('button', { type: 'button', class: 'dl-button dl-button-link', text: 'Show all countries' });
+    const clear = el('button', { type: 'button', class: 'dl-button dl-button-link', text: t('显示所有国家/地区', 'Show all countries') });
     clear.addEventListener('click', () => {
       const q = new URLSearchParams(location.search);
       q.delete('country');
       history.replaceState(null, '', `${location.pathname}?${q}`);
       onChange();
     });
-    note.replaceChildren(`Only visitors from ${countryLabel(current === 'unknown' ? null : current)}. `, clear);
+    const label = countryLabel(current === 'unknown' ? null : current);
+    note.replaceChildren(t(`仅显示来自 ${label} 的访客。`, `Only visitors from ${label}. `), clear);
   };
   return { node: note, update };
 }
@@ -597,7 +625,7 @@ function tableBody(table, columns, rows, empty, rowClass) {
   if (!rows.length) body.append(el('tr', {}, [el('td', { class: 'dl-muted', colspan: columns.length, text: empty })]));
   for (const row of rows) {
     const reason = row.bot_reason && botReasonText(row.bot_reason);
-    const tr = el('tr', { class: rowClass ? rowClass(row) : null, title: reason ? `Bot: ${reason}` : null });
+    const tr = el('tr', { class: rowClass ? rowClass(row) : null, title: reason ? t(`机器人：${reason}`, `Bot: ${reason}`) : null });
     for (const column of columns) {
       const value = column.value(row);
       const text = value == null ? '' : String(value);
@@ -614,7 +642,7 @@ function tableBody(table, columns, rows, empty, rowClass) {
 
 // A short list that is always shown in full (e.g. the sites one IP visited).
 // columns: { label, value(row), cls, href(row), title(row), external (open the link in a new tab) }
-export function staticTable({ columns, empty = 'No data', rowClass }) {
+export function staticTable({ columns, empty = t('暂无数据', 'No data'), rowClass }) {
   const table = el('table', { class: 'dl-table' });
   return { node: el('div', { class: 'dl-table-wrap' }, [table]), set: (rows) => tableBody(table, columns, rows, empty, rowClass) };
 }
@@ -625,11 +653,13 @@ const SEARCH_JUNK = /[^\p{L}\p{N}\p{M} ._:/@?=&+~,#%()-]/gu;
 // A long list paged on the server: only `pageSize` rows are fetched at a time,
 // "Show more" fetches the next page and the search box runs the search in Athena.
 // With searchUrls, a full address typed in the search (https://site/path) is searched as its path.
-export function pagedTable({ list, params, pageSize, columns, placeholder = 'Search…', empty = 'No data', rowClass, searchUrls }) {
+export function pagedTable({
+  list, params, pageSize, columns, placeholder = t('搜索…', 'Search…'), empty = t('暂无数据', 'No data'), rowClass, searchUrls,
+}) {
   const search = el('input', { type: 'search', class: 'table-filter', placeholder, 'aria-label': placeholder, maxlength: 100, hidden: true });
   const table = el('table', { class: 'dl-table' });
   const info = el('span', { class: 'table-info' });
-  const fewer = el('button', { type: 'button', class: 'dl-button dl-button-link', text: 'Show fewer', hidden: true });
+  const fewer = el('button', { type: 'button', class: 'dl-button dl-button-link', text: t('收起', 'Show fewer'), hidden: true });
   const more = el('button', { type: 'button', class: 'dl-button show-more', hidden: true });
   const node = el('div', {}, [el('div', { class: 'dl-table-wrap' }, [table]), more, el('div', { class: 'table-foot' }, [info, fewer])]);
   let rows = [];
@@ -639,14 +669,17 @@ export function pagedTable({ list, params, pageSize, columns, placeholder = 'Sea
   let timer;
 
   function draw() {
-    tableBody(table, columns, rows, query ? 'No matching rows' : empty, rowClass);
+    tableBody(table, columns, rows, query ? t('没有匹配的行', 'No matching rows') : empty, rowClass);
     search.hidden = total <= pageSize && !query;
     const left = total - rows.length;
     more.hidden = left <= 0;
     more.disabled = false;
-    more.textContent = `Show ${fmt(Math.min(left, pageSize))} more`;
+    const next = fmt(Math.min(left, pageSize));
+    more.textContent = t(`再显示 ${next} 条`, `Show ${next} more`);
     fewer.hidden = rows.length <= pageSize;
-    info.textContent = total > pageSize || query ? `Showing ${fmt(rows.length)} of ${fmt(total)}${query ? ' matching' : ''}` : '';
+    info.textContent = total > pageSize || query
+      ? t(`已显示 ${fmt(rows.length)} 条，共 ${fmt(total)} 条${query ? '匹配结果' : ''}`, `Showing ${fmt(rows.length)} of ${fmt(total)}${query ? ' matching' : ''}`)
+      : '';
   }
 
   async function fetchPage(offset) {
@@ -680,13 +713,13 @@ export function pagedTable({ list, params, pageSize, columns, placeholder = 'Sea
       const next = typed.replace(SEARCH_JUNK, ' ').trim().slice(0, 100);
       if (next === query) return;
       query = next;
-      info.textContent = 'Searching…';
+      info.textContent = t('正在搜索…', 'Searching…');
       fetchPage(0);
     }, 400);
   });
   more.addEventListener('click', () => {
     more.disabled = true;
-    more.textContent = 'Loading…';
+    more.textContent = t('加载中…', 'Loading…');
     fetchPage(rows.length);
   });
   fewer.addEventListener('click', () => {
@@ -735,7 +768,7 @@ export function chart(keys, { bars, line, barLabel, lineLabel, unit }) {
   const box = el('div', { class: 'chart' });
   if (!keys.length) return box;
   const width = 1000, height = 220, left = 44, bottom = 22, top = 10;
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `${barLabel} over time` });
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': t(`${barLabel}随时间的变化`, `${barLabel} over time`) });
   const max = Math.max(1, ...bars, ...(line || []));
   const plotW = width - left, plotH = height - bottom - top;
   const step = plotW / keys.length;
@@ -754,7 +787,9 @@ export function chart(keys, { bars, line, barLabel, lineLabel, unit }) {
     const x = left + i * step;
     const bar = svgEl('rect', { x: x + step * 0.1, width: Math.max(1, step * 0.8), y: y(bars[i]), height: top + plotH - y(bars[i]), class: 'bar' });
     const title = svgEl('title');
-    title.textContent = `${unit === 'day' ? key.slice(0, 10) : formatMinute(new Date(key))}\n${barLabel}: ${number.format(bars[i])}${line ? `\n${lineLabel}: ${number.format(line[i])}` : ''}\n${state.public ? 'Sign in to zoom in' : 'Click or drag to zoom in'}`;
+    const colon = t('：', ': ');
+    const hint = state.public ? t('登录后可放大', 'Sign in to zoom in') : t('点击或拖动以放大', 'Click or drag to zoom in');
+    title.textContent = `${unit === 'day' ? key.slice(0, 10) : formatMinute(new Date(key))}\n${barLabel}${colon}${number.format(bars[i])}${line ? `\n${lineLabel}${colon}${number.format(line[i])}` : ''}\n${hint}`;
     bar.append(title);
     svg.append(bar);
     if (line) points.push(`${x + step / 2},${y(line[i])}`);
@@ -835,7 +870,8 @@ function zoomable(svg, keys, unit, { left, top, width, plotH, step }) {
   svg.querySelectorAll('rect.bar').forEach((bar, i) => {
     bar.setAttribute('tabindex', '0');
     bar.setAttribute('role', 'button');
-    bar.setAttribute('aria-label', `Zoom in on ${unit === 'day' ? keys[i].slice(0, 10) : formatMinute(new Date(keys[i]))}`);
+    const when = unit === 'day' ? keys[i].slice(0, 10) : formatMinute(new Date(keys[i]));
+    bar.setAttribute('aria-label', t(`放大 ${when}`, `Zoom in on ${when}`));
     bar.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
@@ -867,10 +903,12 @@ export function series(keys, rows, field, keyOf = (row) => row.bucket) {
 
 export function periodText(filters) {
   if (filters.since) {
-    const end = filters.until ? formatMinute(new Date(utc(filters.until))) : 'now';
-    return `${formatMinute(new Date(utc(filters.since)))} to ${end} (${zone()})`;
+    const end = filters.until ? formatMinute(new Date(utc(filters.until))) : t('现在', 'now');
+    const since = formatMinute(new Date(utc(filters.since)));
+    return t(`${since} 至 ${end}（${zone()}）`, `${since} to ${end} (${zone()})`);
   }
-  return `${filters.startDay === filters.endDay ? filters.startDay : `${filters.startDay} to ${filters.endDay}`} (whole UTC days)`;
+  if (filters.startDay === filters.endDay) return t(`${filters.startDay}（UTC 整日）`, `${filters.startDay} (whole UTC days)`);
+  return t(`${filters.startDay} 至 ${filters.endDay}（UTC 整日）`, `${filters.startDay} to ${filters.endDay} (whole UTC days)`);
 }
 
 export const isBot = (row) => row.is_bot === true || row.is_bot === 'true';
@@ -883,7 +921,8 @@ export function browserLabel(ua, asn) {
 }
 // Browser and Device table columns, read from the user agent in `key` and its client hints (all of it on hover).
 export const uaColumns = (key, withHosting = true) => [
-  { label: 'Browser', value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'dl-muted' },
-  { label: 'Device', value: (r) => describeDevice(r[key], r[hintsKey(key)]), title: (r) => uaTitle(r[key], r[hintsKey(key)]), cls: 'dl-muted' },
+  { label: t('浏览器', 'Browser'), value: (r) => (withHosting ? browserLabel(r[key], r.asn) : describeBrowser(r[key])), title: (r) => r[key], cls: 'dl-muted' },
+  { label: t('设备', 'Device'), value: (r) => describeDevice(r[key], r[hintsKey(key)]), title: (r) => uaTitle(r[key], r[hintsKey(key)]), cls: 'dl-muted' },
 ];
-export const uaTitle = (ua, hints) => (hints ? `${ua}\nClient hints: ${hints.replace('|', ', system ')}` : ua);
+export const uaTitle = (ua, hints) => (hints
+  ? t(`${ua}\n客户端提示：${hints.replace('|', '，系统 ')}`, `${ua}\nClient hints: ${hints.replace('|', ', system ')}`) : ua);

@@ -39,9 +39,10 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - Every widget loads on its own (`/api/overview`, `/api/page`, `/api/ip` and `/api/visitor` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
 - **Docs** – `https://traffic.dliu.com/docs`, public, one page with tabs like the other dliu.com apps:
-  `#architecture` (diagrams of the architecture and sign-in flow), `#bot-detection` (the bot rules and checks),
-  `#cost` (the monthly bill and the cost per page load) and `#security` (threat model, live penetration-test results
+  Technical architecture `#architecture` (diagrams of the architecture and sign-in flow), Bot detection
+  `#bot-detection` (the bot rules and checks), Cost `#cost` (the monthly bill and the cost per page load) and `#security` (threat model, live penetration-test results
   and accepted risks). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
+- **Chinese / English** – every page, the docs and the sign-in error page have the shared 中文 | English switch.
 
 ```
 site CloudFront ──v2 logs──▶ S3 raw-v2/<site>/YYYY/MM/DD/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
@@ -134,11 +135,16 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 ## Look (shared dliu.com UI)
 
 The dashboard uses the shared dliu.com look ([spec](https://files.dliu.com/dliu.com/README.md)): every page in `web/`
-loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs page `/docs`, with tabs Architecture, Bot detection,
-Running costs and Security, also loads `dl-docs.css` and uses `dl-tabs`), and has the shared header and footer. Top left is the app's
+loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs page `/docs`, with the shared tab names Technical architecture,
+Bot detection, Cost and Security, also loads `dl-docs.css` and uses `dl-tabs`), and has the shared header and footer. Top left is the app's
 logo and name ("DL Traffic"; `web/logo.svg`, a white bar chart on the DL blue #209cee, is also the favicon), and
 the footer starts with the shared DL logo.
 On phones the dashboard pages fold their links into a ☰ menu (`dl-menu-toggle`, opened by `web/dash.js`).
+The shared Chinese/English switch (`dl-language`) is added last in the header nav, inside the ☰ menu, by `web/i18n.js`,
+which every page loads first (as on blog.dliu.com): a choice saved in the browser (`localStorage` key `traffic-language`)
+wins, otherwise any `zh-*` browser language means Chinese and anything else English. Switching saves the choice and
+reloads the page. Fixed HTML text carries its Chinese in `data-zh` (and `data-zh-label` for aria-labels); scripts write
+their text with `t('中文', 'English')`. Data from the logs is never translated.
 Buttons, the period switch (`dl-segmented`), cards, tables and the Microsoft sign-in button use the shared `dl-*`
 classes; `web/style.css` keeps only the dashboard's own parts (KPIs, charts, site cards, filters) on the shared
 `--dl-*` colours. Light theme only. The CSP allows only `https://files.dliu.com/dliu.com/ui/` for styles and
