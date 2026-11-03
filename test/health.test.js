@@ -150,6 +150,7 @@ describe('/docs/health and /docs/health.md', () => {
   test('the page has the diagram, plain words and every technical detail folded', () => {
     expect(html).toContain('<div class="dg-flow" role="list">');
     expect(html).toContain('<span class="dg-arrow">');
+    expect(html).toContain('<div class="dg-flow dg-results" role="list">');
     for (const tone of ['good', 'warn', 'bad']) expect(html).toContain(`class="dg-step dg-${tone}"`);
     const details = html.match(/<details[^>]*>/g);
     expect(details.length).toBe(3);

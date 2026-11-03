@@ -133,7 +133,7 @@ ${tableHtml(
   ].join(`\n        ${ARROW}\n        `)}
       </div></figure>
 
-      <figure class="dg">${tr('figcaption', ['每项检查的结果', 'What each result means'])}<div class="dg-flow" role="list">
+      <figure class="dg">${tr('figcaption', ['每项检查的结果', 'What each result means'])}<div class="dg-flow dg-results" role="list">
         ${step('check', ['正常', 'Pass'], ['一切如常', 'Working as expected'], 'good')}
         ${step('clock', ['警告', 'Warn'], ['还能用，但变慢或变旧', 'Still works, but slow or out of date'], 'warn')}
         ${step('shield', ['故障', 'Fail'], ['访客会受影响', 'Visitors are affected'], 'bad')}

@@ -120,3 +120,6 @@ body.public .private-only { display: none !important; }
 .chart .bar:focus { outline: none; }
 .chart .bar:focus-visible { fill: var(--dl-accent); }
 .chart .select-band { fill: var(--dl-accent); opacity: 0.18; pointer-events: none; }
+
+/* /docs/health: the pass / warn / fail boxes stand apart (no arrows between them). */
+.dg-flow.dg-results { gap: 12px; }
