@@ -1,9 +1,15 @@
+import { t } from './i18n.js';
 import './docs-architecture.js';
 import './docs-bot-detection.js';
 import './docs-cost.js';
 import './docs-security.js';
 
-const TITLES = { architecture: 'Architecture', 'bot-detection': 'Bot detection', cost: 'Running costs', security: 'Security' };
+const TITLES = {
+  architecture: t('技术架构', 'Technical architecture'),
+  'bot-detection': t('机器人识别', 'Bot detection'),
+  cost: t('成本', 'Cost'),
+  security: t('安全', 'Security'),
+};
 const TABS = Object.keys(TITLES);
 
 function show(scroll) {
@@ -14,7 +20,7 @@ function show(scroll) {
     if (link.dataset.tab === current) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
-  document.title = `${TITLES[current]} · Docs · Traffic · dliu.com`;
+  document.title = `${TITLES[current]} · ${t('文档 · 流量', 'Docs · Traffic')} · dliu.com`;
   if (scroll) window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', () => show(true));

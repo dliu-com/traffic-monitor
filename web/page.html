@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Page · dliu.com</title>
+  <title data-zh="页面 · dliu.com">Page · dliu.com</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl.css">
   <link rel="stylesheet" href="/style.css">
@@ -12,32 +12,32 @@
 </head>
 <body class="dl-page">
   <header class="dl-header">
-    <a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32">DL Traffic</a>
-    <button type="button" class="dl-button dl-menu-toggle" aria-controls="dl-menu" aria-expanded="false" aria-label="Menu">☰</button>
-    <nav id="dl-menu" class="dl-nav dl-nav-collapsible" aria-label="Site">
-      <a class="dl-nav-link" href="/" aria-current="page">Dashboard</a>
-      <a class="dl-nav-link private-only" href="/bots">Bots</a>
-      <a class="dl-button" href="/docs">Docs</a>
-      <span id="account" class="account" hidden><span id="user" class="dl-account"></span><a class="dl-button" href="/auth/logout">Sign out</a></span>
-      <a id="signin-link" class="dl-button dl-signin" href="/auth/login" hidden>Sign in</a>
+    <a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32"><span data-zh="DL 流量">DL Traffic</span></a>
+    <button type="button" class="dl-button dl-menu-toggle" aria-controls="dl-menu" aria-expanded="false" aria-label="Menu" data-zh-label="菜单">☰</button>
+    <nav id="dl-menu" class="dl-nav dl-nav-collapsible" aria-label="Site" data-zh-label="网站">
+      <a class="dl-nav-link" href="/" aria-current="page" data-zh="仪表板">Dashboard</a>
+      <a class="dl-nav-link private-only" href="/bots" data-zh="机器人">Bots</a>
+      <a class="dl-button" href="/docs" data-zh="文档">Docs</a>
+      <span id="account" class="account" hidden><span id="user" class="dl-account"></span><a class="dl-button" href="/auth/logout" data-zh="退出登录">Sign out</a></span>
+      <a id="signin-link" class="dl-button dl-signin" href="/auth/login" hidden data-zh="登录">Sign in</a>
     </nav>
   </header>
 
   <main class="dl-main">
     <section id="signin" hidden class="dl-card signin">
-      <h2>Traffic across the dliu.com sites</h2>
-      <p>This page is private. Sign in with your dliu.com Microsoft account to view it. The traffic totals are public on the <a href="/">dashboard</a>.</p>
+      <h2 data-zh="dliu.com 各网站的流量">Traffic across the dliu.com sites</h2>
+      <p><span data-zh="此页面为私密内容。请用你的 dliu.com Microsoft 账号登录后查看。流量总数在">This page is private. Sign in with your dliu.com Microsoft account to view it. The traffic totals are public on the</span> <a href="/" data-zh="仪表板">dashboard</a><span data-zh="上公开。">.</span></p>
       <a class="dl-ms-signin" href="/auth/login">
         <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
-        <span>Sign in with Microsoft</span>
+        <span data-zh="使用 Microsoft 登录">Sign in with Microsoft</span>
       </a>
-      <a class="dl-button" href="/docs">How it works — read the docs →</a>
+      <a class="dl-button" href="/docs" data-zh="运作方式 — 阅读文档 →">How it works — read the docs →</a>
     </section>
 
-    <p id="status" role="status">Loading…</p>
+    <p id="status" role="status" data-zh="加载中…">Loading…</p>
     <div id="page" hidden></div>
   </main>
 
-  <footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="https://files.dliu.com/dliu.com/favicon.png" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a> · <a href="/docs">Docs</a> · <a href="https://github.com/dliu-com/traffic-monitor">Source</a></footer>
+  <footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="https://files.dliu.com/dliu.com/favicon.png" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a> · <a href="/docs" data-zh="文档">Docs</a> · <a href="https://github.com/dliu-com/traffic-monitor" data-zh="源代码">Source</a></footer>
 </body>
 </html>

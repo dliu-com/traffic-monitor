@@ -1,5 +1,6 @@
 // Shared helpers for the dashboard pages (All sites, Site, IP).
 // Every value from the logs is attacker-controlled, so it is only ever set with textContent.
+import './i18n.js';
 import { describeBrowser, describeDevice } from './ua.js';
 
 export { describeBrowser, describeDevice };

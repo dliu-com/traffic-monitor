@@ -35,12 +35,12 @@ function errorPage(statusCode, message, cookies) {
     statusCode,
     headers: { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' },
     ...(cookies ? { cookies } : {}),
-    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in problem · Traffic · dliu.com</title>
-<link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl.css"><link rel="stylesheet" href="/style.css">
-<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32">DL Traffic</a>
-<nav class="dl-nav" aria-label="Site"><a class="dl-button" href="/docs">Docs</a><a class="dl-button dl-signin" href="/auth/login">Sign in</a></nav></header>
-<main class="dl-main dl-narrow"><h1>Sign-in problem</h1><p>${escapeHtml(message)}</p><p><a class="dl-button dl-button-primary" href="/auth/login">Try again</a></p></main>
-<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a> · <a href="/docs">Docs</a></footer></body></html>`,
+    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title data-zh="登录问题 · 流量 · dliu.com">Sign-in problem · Traffic · dliu.com</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl.css"><link rel="stylesheet" href="/style.css"><script type="module" src="/i18n.js"></script>
+<body class="dl-page"><header class="dl-header"><a class="dl-brand" href="/"><img class="dl-logo" src="/logo.svg" alt="" width="32" height="32"><span data-zh="DL 流量">DL Traffic</span></a>
+<nav class="dl-nav" aria-label="Site" data-zh-label="网站"><a class="dl-button" href="/docs" data-zh="文档">Docs</a><a class="dl-button dl-signin" href="/auth/login" data-zh="登录">Sign in</a></nav></header>
+<main class="dl-main dl-narrow"><h1 data-zh="登录问题">Sign-in problem</h1><p data-message>${escapeHtml(message)}</p><p><a class="dl-button dl-button-primary" href="/auth/login" data-zh="重试">Try again</a></p></main>
+<footer class="dl-footer"><a class="dl-footer-logo" href="https://dliu.com" aria-label="dliu.com"><img src="${DL_ICON}" alt="" width="24" height="24"></a> <a href="https://dliu.com">dliu.com</a> · <a href="/docs" data-zh="文档">Docs</a></footer></body></html>`,
   };
 }
 
