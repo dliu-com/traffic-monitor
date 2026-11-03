@@ -262,6 +262,9 @@ that belong to no single app. It covers this app's spend too. It warns; it stops
   values. It then deletes the raw file, so raw logs live only seconds. Logs filed before this were rewritten with
   `node scripts/redact-logs.js --bucket <log bucket>` (safe to rerun; `--dry-run` only counts).
 - CloudFront logs arrive with a delay of a few minutes.
+- status.dliu.com probes every site as a guest every 15 minutes with the user agent `dliu-status-bot/1.0`. The
+  partitioner drops every log line whose (URL-decoded) user agent starts with `dliu-status-bot/`, so the probes never
+  reach the Bots page, Athena scans, the bot check or AbuseIPDB; a file holding only probes is not filed at all.
 - Logs are kept for 1 year; a raw (unpartitioned) file left by a failed partitioner run expires after 1 day.
 - Every CloudWatch log group (the app's Lambdas and CDK's helper Lambdas) keeps logs for 90 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

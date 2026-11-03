@@ -1,6 +1,6 @@
 const zlib = require('zlib');
 const { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
+const { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isStatusProbe, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR } = require('../lambda/partitioner');
 const FIELDS = require('../lambda/partitioner/fields.json');
 
 // A v2 line with every legacy field set to "<name>" plus the three added fields.
@@ -149,6 +149,38 @@ describe('log partitioner', () => {
     const text = '#Fields: date cs-uri-query cs(Referer)\n2026-10-09\ttoken=abc&from=x\thttps://plan.dliu.com/?code=c\r\n';
     expect(redactLogText(text)).toBe('#Fields: date cs-uri-query cs(Referer)\n2026-10-09\ttoken=redacted&from=x\thttps://plan.dliu.com/?code=redacted\r\n');
     expect(redactLogText(redactLogText(text))).toBe(redactLogText(text));
+  });
+
+  test('drops status.dliu.com probe lines, whatever the encoding, and keeps everyone else', () => {
+    const names = ['date', 'c-ip', 'cs(User-Agent)'];
+    const ua = (value) => ['2026-11-03', '203.0.113.9', value].join('\t');
+    const text = [
+      `#Fields: ${names.join(' ')}`,
+      ua('dliu-status-bot/1.0%20(+https://status.dliu.com/docs)'),
+      ua('dliu-status-bot%2F1.0%2520(+https://status.dliu.com/docs)'),
+      ua('Mozilla/5.0%20(X11)%20dliu-status-bot/1.0'),
+      ua('Mozilla/5.0%20(Windows%20NT%2010.0)'),
+      ua('-'),
+      '',
+    ].join('\n');
+    const rows = normalizeV2(text).split('\n').slice(2).filter(Boolean);
+    const agentIndex = OUTPUT_FIELDS.indexOf('cs(User-Agent)');
+    expect(rows.map((row) => row.split('\t')[agentIndex])).toEqual([
+      'Mozilla/5.0%20(X11)%20dliu-status-bot/1.0',
+      'Mozilla/5.0%20(Windows%20NT%2010.0)',
+      '-',
+    ]);
+    expect(isStatusProbe('dliu-status-bot/1.0')).toBe(true);
+    expect(isStatusProbe('dliu-status-botnet/1.0')).toBe(false);
+    expect(isStatusProbe(undefined)).toBe(false);
+  });
+
+  test('a v2 file holding only status probes is deleted without writing a partition file', async () => {
+    const send = jest.fn(async (command) => (command.constructor.name === 'GetObjectCommand'
+      ? { Body: { transformToByteArray: async () => Buffer.from('#Fields: date cs(User-Agent)\n2026-11-03\tdliu-status-bot/1.0%20(+https://status.dliu.com/docs)\n') } }
+      : {}));
+    await processEvent({ Records: [{ s3: { bucket: { name: 'b' }, object: { key: 'raw-v2/blog/2026/11/03/f.gz' } } }] }, { send });
+    expect(send.mock.calls.map(([c]) => c.constructor.name)).toEqual(['GetObjectCommand', 'DeleteObjectCommand']);
   });
 
   test('uses the configured field order when a v2 file has no header', () => {

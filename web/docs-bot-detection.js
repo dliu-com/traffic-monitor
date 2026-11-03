@@ -51,6 +51,8 @@ root.append(table([t('原因', 'Reason'), t('显示为', 'Shown as'), t('为何�
   ['headless', t('从未加载脚本、样式或 Cookie', 'never loaded scripts, styles or the cookie'), t('真正显示页面的浏览器也会加载页面的脚本和样式，或者带着 Cookie 再次访问。伪装成浏览器 User-Agent 的脚本通常只获取 HTML', 'A browser that shows a page also loads its scripts and styles, or comes back with the cookie. Scripts that fake a browser user agent usually fetch only the HTML')],
 ]));
 
+add('p', t('status.dliu.com 每 15 分钟以游客身份检查每个网站，User-Agent 为 dliu-status-bot/1.0。这些请求在写入日志分区之前就被丢弃，因此不会出现在机器人页面，也不会被 Athena 扫描、参与机器人检查或查询 AbuseIPDB。', 'status.dliu.com checks every site as a guest every 15 minutes, with the user agent dliu-status-bot/1.0. Those requests are dropped before the logs are filed, so they never appear on the Bots page and are never scanned by Athena, judged by the bot check or looked up on AbuseIPDB.'));
+
 root.append(callout('browser', t('浏览器名称绝不会被用来判定访客。微信、QQ 浏览器、360、UC、夸克、华为、搜狗等在中国流行的浏览器，以及各类应用内浏览器，都与 Chrome 或 Safari 一视同仁：只看它们的实际行为。', 'The browser name is never used against a visitor. WeChat, QQ Browser, 360, UC, Quark, Huawei, Sogou and other browsers popular in China, as well as in-app browsers everywhere, are treated exactly like Chrome or Safari: only what they do counts.')));
 
 add('h2', t('运行时间', 'When it runs'));

@@ -111,6 +111,14 @@ function redactLogText(text) {
   }).join('\n');
 }
 
+// status.dliu.com probes every site as a guest every 15 minutes. Its lines are dropped here, so they never
+// reach the Bots page, Athena scans, the bot check or AbuseIPDB lookups.
+const STATUS_BOT = /^dliu-status-bot\//i;
+
+function isStatusProbe(userAgent) {
+  return Boolean(userAgent) && STATUS_BOT.test(safeDecode(safeDecode(userAgent)).trim());
+}
+
 function decodeKey(key) {
   return decodeURIComponent(key.replace(/\+/g, ' '));
 }
@@ -129,6 +137,7 @@ function normalizeV2(text) {
     if (!trimmed || trimmed.startsWith('#')) continue;
     const values = trimmed.split('\t');
     const byName = new Map(names.map((name, i) => [name, values[i]]));
+    if (isStatusProbe(byName.get('cs(User-Agent)'))) continue;
     rows.push(OUTPUT_FIELDS.map((name) => {
       const value = byName.get(name);
       if (name === 'cs(Cookie)') return redactCookie(value);
@@ -167,12 +176,16 @@ async function processEvent(event, s3) {
     } else if (isV2(key)) {
       const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
       const text = gunzipIfNeeded(Buffer.from(await object.Body.transformToByteArray())).toString('utf8');
-      await s3.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: target,
-        Body: zlib.gzipSync(normalizeV2(text)),
-        ContentType: 'application/gzip',
-      }));
+      const normalized = normalizeV2(text);
+      // A file holding only status probes (or nothing) leaves no empty object behind.
+      if (normalized !== OUTPUT_HEADER) {
+        await s3.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: target,
+          Body: zlib.gzipSync(normalized),
+          ContentType: 'application/gzip',
+        }));
+      }
     } else {
       await s3.send(new CopyObjectCommand({
         Bucket: bucket,
@@ -190,4 +203,4 @@ async function handler(event) {
   return processEvent(event, client());
 }
 
-module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };
+module.exports = { handler, processEvent, targetKey, decodeKey, normalizeV2, redactCookie, redactQuery, redactReferrer, redactLogText, isStatusProbe, isRetiredLegacy, OUTPUT_FIELDS, LEGACY_LAST_HOUR };
