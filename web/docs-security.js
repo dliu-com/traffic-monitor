@@ -193,5 +193,5 @@ root.append(more('More technical details (text)', details));
 
 const footer = document.createElement('p');
 footer.className = 'source';
-footer.textContent = 'Source: dliu-com/traffic-monitor · See also the About page for the architecture and cost.';
+footer.textContent = 'Source: dliu-com/traffic-monitor · See also the Architecture and Running costs tabs.';
 root.append(footer);

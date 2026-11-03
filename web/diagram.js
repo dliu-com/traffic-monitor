@@ -1,4 +1,4 @@
-// Small DOM/SVG diagram kit for the About page (adapted from the Weiqi site).
+// Small DOM/SVG diagram kit for the Docs page (adapted from the Weiqi site).
 const NS = 'http://www.w3.org/2000/svg';
 const ICONS = {
   browser: ['#4b6575', [['rect', { x: 3, y: 4.5, width: 18, height: 15, rx: 2 }], ['path', { d: 'M3 9h18' }], ['circle', { cx: 6, cy: 6.8, r: 0.6, fill: '#fff' }], ['circle', { cx: 8.3, cy: 6.8, r: 0.6, fill: '#fff' }]]],

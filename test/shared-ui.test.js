@@ -10,7 +10,8 @@ const DL_CSS = '<link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/
 const DOCS_CSS = '<link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl-docs.css">';
 const DL_ICON = 'https://files.dliu.com/dliu.com/favicon.png';
 const APP_PAGES = ['index', 'site', 'page', 'visitor', 'ip', 'bots', 'abuse-check'];
-const DOCS_PAGES = ['about', 'detect-bot', 'cost', 'security'];
+const DOCS_PAGES = ['docs'];
+const DOCS_TABS = ['architecture', 'bot-detection', 'cost', 'security'];
 const ALL_PAGES = [...APP_PAGES, ...DOCS_PAGES];
 
 test('the web folder has exactly these pages', () => {
@@ -60,9 +61,11 @@ test.each(DOCS_PAGES)('%s uses the shared docs stylesheet and tabs', (name) => {
   expect(page.indexOf(DOCS_CSS)).toBeLessThan(page.indexOf('<link rel="stylesheet" href="/style.css">'));
   expect(page).toContain('<main class="dl-main dl-docs-main">');
   expect(page).toContain('<nav class="dl-tabs" aria-label="Docs sections">');
-  expect(page).toMatch(/<article id="[a-z-]+" class="dl-docs">/);
-  for (const tab of ['/about', '/detect-bot', '/cost', '/security']) expect(page).toContain(`<a href="${tab}"`);
-  expect(page).toContain(`<a href="/${name}" aria-current="page">`);
+  for (const tab of DOCS_TABS) {
+    expect(page).toContain(`<a href="#${tab}" data-tab="${tab}">`);
+    expect(page).toMatch(new RegExp(`<article id="${tab}" class="dl-docs"( hidden)?>`));
+  }
+  expect(page).toContain('<a class="dl-button" href="/docs" aria-current="page">Docs</a>');
 });
 
 test('the dashboard has no docs stylesheet or palette of its own, and no dark mode', () => {
@@ -81,8 +84,8 @@ test('the scripts use the shared classes for buttons, tables, cards and tabs', (
   expect(dash).toContain("class: 'dl-table-wrap'");
   expect(dash).toContain('class: `dl-card card');
   expect(dash).not.toMatch(/class: '(link-button|show-more|table-wrap)'/);
-  for (const file of ['about', 'detect-bot', 'cost', 'security']) {
-    expect(read(`web/${file}.js`)).not.toContain("createElement('footer')");
+  for (const file of DOCS_TABS) {
+    expect(read(`web/docs-${file}.js`)).not.toContain("createElement('footer')");
   }
 });
 
@@ -104,4 +107,19 @@ test('the app logo is the white bar chart on the DL blue', () => {
   const logo = read('web/logo.svg');
   expect(logo).toContain('<rect width="32" height="32" rx="8" fill="#209cee"/>');
   expect(logo).not.toMatch(/<script|href=/);
+});
+
+test.each(ALL_PAGES)('%s links to /docs, not the old About page', (name) => {
+  const page = read(`web/${name}.html`);
+  expect(page).toContain('<a href="/docs">Docs</a> · <a href="https://github.com/dliu-com/traffic-monitor">Source</a></footer>');
+  expect(page).not.toMatch(/href="\/(about|detect-bot|cost|security)"/);
+});
+
+test('docs.js loads every section and switches tabs by the URL hash', () => {
+  const docs = read('web/docs.js');
+  for (const tab of DOCS_TABS) {
+    expect(docs).toContain(`import './docs-${tab}.js';`);
+    expect(read(`web/docs-${tab}.js`)).toContain(`document.getElementById('${tab}')`);
+  }
+  expect(docs).toContain("window.addEventListener('hashchange'");
 });

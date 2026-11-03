@@ -86,7 +86,7 @@ page.append(
   el('div', { class: 'page-head' }, [el('h2', { text: 'AbuseIPDB check' }), el('div', { class: 'page-tools' }, [botCheck(load)])]),
   el('p', { class: 'period-note' }, [
     'The bot check, every 6 hours, looks up IPs that look like people on AbuseIPDB (free plan: 1,000 lookups a day, shared by the day\'s runs). An IP is looked up once, and again only after 30 days. IPs not looked up within 3 days are dropped and count as people. ',
-    el('a', { href: '/detect-bot', text: 'How bots are detected' }), '.',
+    el('a', { href: '/docs#bot-detection', text: 'How bots are detected' }), '.',
   ]),
   usageBox,
   lastRun,

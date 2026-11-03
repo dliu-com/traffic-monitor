@@ -1,6 +1,6 @@
 import { flow, tiers, stats, cards, more } from './diagram.js';
 
-const root = document.getElementById('about');
+const root = document.getElementById('architecture');
 
 function section(title, ...paragraphs) {
   const h2 = document.createElement('h2');
@@ -156,9 +156,9 @@ root.append(tiers({
 
 section('Read more');
 root.append(cards([
-  ['/detect-bot', 'bot', 'Bot detection', 'The rules that tell bots from people, and the check every 6 hours', '5 rules · AbuseIPDB · every 6 hours'],
-  ['/cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.26 a month · guests free'],
-  ['/security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
+  ['/docs#bot-detection', 'bot', 'Bot detection', 'The rules that tell bots from people, and the check every 6 hours', '5 rules · AbuseIPDB · every 6 hours'],
+  ['/docs#cost', 'budget', 'Running costs', 'What each part costs, per month and per page load, and why', '≈ $0.26 a month · guests free'],
+  ['/docs#security', 'shield', 'Security review', 'Live penetration test, threat model and accepted risks', '21 tests, 4 fixes · 9 Oct 2026'],
   ['https://github.com/dliu-com/traffic-monitor', 'code', 'Source code', 'The CDK stack, Lambdas, functions and these pages', 'Public on GitHub'],
 ]));
 

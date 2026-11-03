@@ -101,7 +101,7 @@ page.append(
   periodNote,
   el('p', { class: 'period-note' }, [
     'Bot records are kept for the last 3 days; the daily log merge then deletes them for good. Until the next bot check (every 6 hours), new requests count as bots only by user agent. ',
-    el('a', { href: '/detect-bot', text: 'How bots are detected' }), ' · ', el('a', { href: '/abuse-check', text: 'AbuseIPDB check' }), '.',
+    el('a', { href: '/docs#bot-detection', text: 'How bots are detected' }), ' · ', el('a', { href: '/abuse-check', text: 'AbuseIPDB check' }), '.',
   ]),
   kpiBox,
   el('div', { class: 'grid grid-chart' }, [overTime.node, reasonCard.node]),

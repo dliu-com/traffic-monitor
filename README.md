@@ -38,9 +38,10 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - The period (1h, 12h, 24h, 7d, 30d, 90d, 1y, or a custom `YYYY-MM-DD HH:MM` period in local time, sent as UTC) is kept in the URL, so links can be shared and reloaded.
   - Every widget loads on its own (`/api/overview`, `/api/page`, `/api/ip` and `/api/visitor` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
-- **About** – `https://traffic.dliu.com/about`, public diagrams of the architecture, sign-in flow, cost and security.
-- **Running costs** – `https://traffic.dliu.com/cost`, public breakdown of the monthly bill and the cost per page load.
-- **Security** – `https://traffic.dliu.com/security`, the threat model, live penetration-test results and accepted risks.
+- **Docs** – `https://traffic.dliu.com/docs`, public, one page with tabs like the other dliu.com apps:
+  `#architecture` (diagrams of the architecture and sign-in flow), `#bot-detection` (the bot rules and checks),
+  `#cost` (the monthly bill and the cost per page load) and `#security` (threat model, live penetration-test results
+  and accepted risks). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
 
 ```
 site CloudFront ──v2 logs──▶ S3 raw-v2/<site>/YYYY/MM/DD/ ──▶ partitioner λ ──▶ S3 logs/site=/dt=/ ◀── Athena ◀── dashboard λ ◀── traffic.dliu.com
@@ -133,8 +134,8 @@ Deploy `TrafficMonitor` before any site; it can't be deleted while sites import 
 ## Look (shared dliu.com UI)
 
 The dashboard uses the shared dliu.com look ([spec](https://files.dliu.com/dliu.com/README.md)): every page in `web/`
-loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs pages About, Bot detection, Running costs and
-Security also load `dl-docs.css` and use `dl-tabs`), and has the shared header and footer. Top left is the app's
+loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs page `/docs`, with tabs Architecture, Bot detection,
+Running costs and Security, also loads `dl-docs.css` and uses `dl-tabs`), and has the shared header and footer. Top left is the app's
 logo and name ("DL Traffic"; `web/logo.svg`, a white bar chart on the DL blue #209cee, is also the favicon), and
 the footer starts with the shared DL logo.
 On phones the dashboard pages fold their links into a ☰ menu (`dl-menu-toggle`, opened by `web/dash.js`).
@@ -178,7 +179,7 @@ Not cleared automatically, and why:
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.
 - A request is a bot if its user agent is empty, `-`, or looks like a crawler or script (checked in every query), or if
   the bot check (every 6 hours) flagged its IP for that UTC day. CloudFront itself doesn't flag bots. Visitor IDs are worked out
-  before bots are dropped. Rules and quota handling are documented at `/detect-bot` (`web/detect-bot.js`).
+  before bots are dropped. Rules and quota handling are documented at `/docs#bot-detection` (`web/docs-bot-detection.js`).
 - The `BotClassifier` Lambda (`lambda/dashboard/bots.js`) runs every 6 hours (00:30, 06:30, 12:30 and 18:30 UTC), after
   `make deploy`, from the dashboard's "Check bots now" button or with `make classify-bots DAYS=N` (default 3, up to 7). It
   covers today and the DAYS days before; a scheduled run skips while another is going. It reads only log files no earlier
@@ -218,7 +219,7 @@ Not cleared automatically, and why:
   looks up, in memory, the IPs CloudFront gave no city that day and keeps DB-IP's city only if DB-IP agrees on the
   country; results go to `cities/dt=<day>/cities.json` (Glue table `ip_cities`, kept like the logs). The dashboard
   shows them as `Nanjing (DB-IP)`. The `.mmdb` reader is built in, so the Lambdas still have no npm dependencies.
-  IP Geolocation by DB-IP, credited on the About page.
+  IP Geolocation by DB-IP, credited on the Docs page.
 - Legacy logs (`raw/<site>/`) are filed only up to `LEGACY_LAST_HOUR` in `lambda/partitioner/index.js`; later ones
   are deleted, since v2 already has those requests. The overlap hour was cleaned with
   `node scripts/dedupe-overlap.js --bucket <log bucket>`, which drops legacy rows whose request ID is also in a v2 file.

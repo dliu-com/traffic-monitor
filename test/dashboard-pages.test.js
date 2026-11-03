@@ -7,14 +7,8 @@ const uriFor = (uri) => handler({ request: { uri } }).uri;
 
 describe('dashboard-pages CloudFront function', () => {
   test.each([
-    ['/about', '/about.html'],
-    ['/about/', '/about.html'],
-    ['/detect-bot', '/detect-bot.html'],
-    ['/detect-bot/', '/detect-bot.html'],
-    ['/cost', '/cost.html'],
-    ['/cost/', '/cost.html'],
-    ['/security', '/security.html'],
-    ['/security/', '/security.html'],
+    ['/docs', '/docs.html'],
+    ['/docs/', '/docs.html'],
     ['/site', '/site.html'],
     ['/ip/', '/ip.html'],
     ['/visitor', '/visitor.html'],
@@ -25,7 +19,19 @@ describe('dashboard-pages CloudFront function', () => {
     expect(uriFor(uri)).toBe(expected);
   });
 
-  test.each(['/', '/about.html', '/home.js', '/ips', '/pages', '/api/me', '/auth/login', '/abouts', '/constructor', '/__proto__'])('leaves %s alone', (uri) => {
+  test.each(['/', '/docs.html', '/about.html', '/docs/api', '/docss', '/home.js', '/ips', '/pages', '/api/me', '/auth/login', '/abouts', '/constructor', '/__proto__'])('leaves %s alone', (uri) => {
     expect(uriFor(uri)).toBe(uri);
+  });
+
+  test.each([
+    ['/about', '/docs'],
+    ['/about/', '/docs'],
+    ['/detect-bot', '/docs#bot-detection'],
+    ['/cost', '/docs#cost'],
+    ['/security/', '/docs#security'],
+  ])('redirects the old %s to %s', (uri, location) => {
+    const response = handler({ request: { uri } });
+    expect(response.statusCode).toBe(301);
+    expect(response.headers.location.value).toBe(location);
   });
 });

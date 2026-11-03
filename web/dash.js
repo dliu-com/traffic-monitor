@@ -80,7 +80,7 @@ export function botToggle(onChange) {
   return el('label', { class: 'bot-toggle', title: 'Bots: crawler user agents at once; hosting networks, scanners, AbuseIPDB reports and clients that never load a page\'s scripts or styles after the next bot check (every 6 hours). Bot records are kept for the last 3 days only. See the Bots page.' }, [input, ' Include bots']);
 }
 
-// Why a request or IP counts as a bot (see /detect-bot).
+// Why a request or IP counts as a bot (see /docs#bot-detection).
 export const BOT_REASONS = {
   agent: 'crawler or script (user agent)',
   hosting: 'cloud or hosting network',

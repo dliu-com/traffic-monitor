@@ -1,6 +1,6 @@
 import { flow, tiers, stats, table, more, callout } from './diagram.js';
 
-const root = document.getElementById('detect-bot');
+const root = document.getElementById('bot-detection');
 
 function add(tag, text) {
   const node = document.createElement(tag);

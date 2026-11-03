@@ -661,7 +661,7 @@ export class TrafficMonitorStack extends Stack {
     };
 
     const pagesFunction = new cloudfront.Function(this, 'DashboardPagesFunction', {
-      comment: 'Serves the dashboard pages (/about, /bots, /site...) from their .html files',
+      comment: 'Serves the dashboard pages (/docs, /bots, /site...); old docs URLs redirect to /docs',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromFile({ filePath: path.join(ROOT, 'functions/dashboard-pages.js') }),
     });
