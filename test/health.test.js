@@ -1,10 +1,13 @@
-// status.dliu.com's health contract (status/HEALTH.md): /health, /docs/health and /docs/health.md.
+// status.dliu.com's health contract (status/HEALTH.md): /health, the /docs#health Testing tab, the /docs/health redirect
+// and /docs/health.md.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { createHandler } = require('../lambda/dashboard');
 const { FUNCTIONS, CHECKS, runHealth, healthResponse } = require('../lambda/dashboard/health');
 const { build } = require('../scripts/health-docs');
+
+const loadPagesFunction = () => new Function(`${fs.readFileSync(path.join(__dirname, '..', 'functions', 'dashboard-pages.js'), 'utf8')}\nreturn handler;`)();
 
 const ROOT = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -127,12 +130,14 @@ describe('/health route', () => {
   });
 });
 
-describe('/docs/health and /docs/health.md', () => {
-  const { html, md } = build();
+describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
+  const { article, html, md } = build();
   const healthKeys = source.functions.filter((f) => f.health).map((f) => f.key);
 
-  test('both files are generated from config/health.json and up to date', () => {
-    expect(read('web/docs-health.html')).toBe(html);
+  test('the Testing tab and the Markdown are generated from config/health.json and up to date', () => {
+    expect(read('web/docs.html')).toBe(html);
+    expect(html).toContain(article);
+    expect(fs.existsSync(path.join(ROOT, 'web/docs-health.html'))).toBe(false);
     expect(read('web/docs-health.md')).toBe(md);
     execFileSync(process.execPath, [path.join(ROOT, 'scripts/health-docs.js'), '--check']);
   });
@@ -141,26 +146,44 @@ describe('/docs/health and /docs/health.md', () => {
     expect(FUNCTIONS).toEqual(source.functions.filter((f) => f.health).map((f) => ({ key: f.key, name: f.name[1] })));
     for (const { key, name } of source.functions) {
       expect(md).toContain(`| \`${key}\` | ${name[1]} |`);
-      expect(html).toContain(`data-zh="${name[0]}">${name[1]}</td>`);
+      expect(article).toContain(`data-zh="${name[0]}">${name[1]}</td>`);
     }
-    for (const key of healthKeys) expect(html).toContain(`<td><code>${key}</code></td>`);
+    for (const key of healthKeys) expect(article).toContain(`<td><code>${key}</code></td>`);
     for (const check of source.checks) expect(source.functions.map((f) => f.key)).toContain(check.function);
   });
 
-  test('the page has the diagram, plain words and every technical detail folded', () => {
-    expect(html).toContain('<div class="dg-flow" role="list">');
-    expect(html).toContain('<span class="dg-arrow">');
-    expect(html).toContain('<div class="dg-flow dg-results" role="list">');
-    for (const tone of ['good', 'warn', 'bad']) expect(html).toContain(`class="dg-step dg-${tone}"`);
-    const details = html.match(/<details[^>]*>/g);
+  test('the Testing tab has the diagram, plain words and every technical detail folded', () => {
+    expect(article.startsWith('    <article id="health" class="dl-docs" hidden>')).toBe(true);
+    expect(article).toContain('<div class="dg-flow" role="list">');
+    expect(article).toContain('<span class="dg-arrow">');
+    expect(article).toContain('<div class="dg-flow dg-results" role="list">');
+    for (const tone of ['good', 'warn', 'bad']) expect(article).toContain(`class="dg-step dg-${tone}"`);
+    const details = article.match(/<details[^>]*>/g);
     expect(details.length).toBe(3);
     for (const tag of details) expect(tag).toBe('<details class="dg-more">');
     // Technical details (URLs, status codes, the JSON) appear only inside the folded blocks.
-    const outside = html.replace(/<details[\s\S]*?<\/details>/g, '').replace(/<head>[\s\S]*?<\/head>/, '');
+    const outside = article.replace(/<details[\s\S]*?<\/details>/g, '');
     expect(outside).not.toMatch(/application\/health\+json|<code>|<pre>|max-age|https:\/\/traffic\.dliu\.com\//);
-    expect(html).toContain('<a href="/docs/health.md" data-zh="完整技术版本（Markdown）">Full technical version (Markdown)</a>');
-    expect(html).toContain('<a href="/docs/health" aria-current="page" data-zh="健康检查">Health checks</a>');
-    expect(read('web/docs.html')).toContain('<a href="/docs/health" data-zh="健康检查">Health checks</a>');
+    expect(article).toContain('<a href="/docs/health.md" data-zh="完整技术版本（Markdown）">Full technical version (Markdown)</a>');
+  });
+
+  test('the Testing tab sits next to the other /docs tabs and loads its script', () => {
+    expect(html).toContain('<a href="#security" data-tab="security" data-zh="安全">Security</a>\n      <a href="#health" data-tab="health" data-zh="测试">Testing</a>\n    </nav>');
+    expect(html).not.toMatch(/href="\/docs\/health"/);
+    expect(read('web/docs.js')).toContain("import './docs-health.js';");
+    expect(read('web/docs.js')).toContain("health: t('测试', 'Testing'),");
+    expect(read('web/docs-health.js')).toContain("document.getElementById('health')");
+  });
+
+  test('the old /docs/health URL answers 301 to /docs#health; /docs/health.md stays', () => {
+    const fn = loadPagesFunction();
+    for (const uri of ['/docs/health', '/docs/health/']) {
+      const response = fn({ request: { uri, querystring: {} } });
+      expect(response.statusCode).toBe(301);
+      expect(response.headers.location.value).toBe('/docs#health');
+    }
+    expect(fn({ request: { uri: '/docs/health.md', querystring: {} } }).uri).toBe('/docs-health.md');
+    expect(source.checks).toContainEqual(expect.objectContaining({ path: '/docs/health', status: 301, location: '/docs#health' }));
   });
 
   test('the Markdown has every technical detail unfolded, enough to implement the tests', () => {
@@ -178,7 +201,7 @@ describe('/docs/health and /docs/health.md', () => {
     const marker = (p) => source.checks.find((c) => c.path === p).marker;
     expect(read('web/index.html')).toContain(marker('/'));
     expect(read('web/docs.html')).toContain(marker('/docs'));
-    expect(html).toContain(marker('/docs/health'));
+    expect(article).toContain(marker('/docs'));
     expect(md).toContain(marker('/docs/health.md'));
     expect(read('functions/page-script.js')).toContain(marker('/t/s.js'));
   });

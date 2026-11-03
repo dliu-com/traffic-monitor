@@ -11,16 +11,16 @@ const DOCS_CSS = '<link rel="stylesheet" href="https://files.dliu.com/dliu.com/u
 const DL_ICON = 'https://files.dliu.com/dliu.com/favicon.png';
 const APP_PAGES = ['index', 'site', 'page', 'visitor', 'ip', 'bots', 'abuse-check'];
 const DOCS_PAGES = ['docs'];
-const DOCS_TABS = ['architecture', 'bot-detection', 'cost', 'security'];
-// /docs/health, built by scripts/health-docs.js (its own checks are in health.test.js).
-const HEALTH_PAGES = ['docs-health'];
-const ALL_PAGES = [...APP_PAGES, ...DOCS_PAGES, ...HEALTH_PAGES];
+// health is the Testing tab, written into docs.html by scripts/health-docs.js (its own checks are in health.test.js).
+const DOCS_TABS = ['architecture', 'bot-detection', 'cost', 'security', 'health'];
+const ALL_PAGES = [...APP_PAGES, ...DOCS_PAGES];
 // The shared docs tab names (https://files.dliu.com/dliu.com/README.md), in Chinese and English.
 const TAB_NAMES = {
   architecture: ['技术架构', 'Technical architecture'],
   'bot-detection': ['机器人识别', 'Bot detection'],
   cost: ['成本', 'Cost'],
   security: ['安全', 'Security'],
+  health: ['测试', 'Testing'],
 };
 
 test('the web folder has exactly these pages', () => {
@@ -124,15 +124,6 @@ test.each(ALL_PAGES)('%s links to /docs, not the old About page', (name) => {
   const page = read(`web/${name}.html`);
   expect(page).toContain('<a href="/docs" data-zh="文档">Docs</a> · <a href="https://github.com/dliu-com/traffic-monitor" data-zh="源代码">Source</a></footer>');
   expect(page).not.toMatch(/href="\/(about|detect-bot|cost|security)"/);
-});
-
-test('the health page uses the shared docs stylesheet, the docs tabs and i18n', () => {
-  const page = read('web/docs-health.html');
-  expect(page.indexOf(DOCS_CSS)).toBeGreaterThan(page.indexOf(DL_CSS));
-  expect(page).toContain('<main class="dl-main dl-docs-main">');
-  expect(page).toContain('<nav class="dl-tabs" aria-label="Docs sections" data-zh-label="文档章节">');
-  for (const tab of DOCS_TABS) expect(page).toContain(`<a href="/docs#${tab}" data-zh="${TAB_NAMES[tab][0]}">${TAB_NAMES[tab][1]}</a>`);
-  expect(read('web/docs-health.js')).toMatch(/^(\/\/.*\n)*import \{ language \} from '\.\/i18n\.js';/);
 });
 
 test('docs.js loads every section and switches tabs by the URL hash', () => {

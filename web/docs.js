@@ -3,12 +3,14 @@ import './docs-architecture.js';
 import './docs-bot-detection.js';
 import './docs-cost.js';
 import './docs-security.js';
+import './docs-health.js';
 
 const TITLES = {
   architecture: t('技术架构', 'Technical architecture'),
   'bot-detection': t('机器人识别', 'Bot detection'),
   cost: t('成本', 'Cost'),
   security: t('安全', 'Security'),
+  health: t('测试', 'Testing'),
 };
 const TABS = Object.keys(TITLES);
 

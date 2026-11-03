@@ -191,10 +191,12 @@ Not cleared automatically, and why:
 
 [status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest, following its health contract:
 
-- [`/docs/health`](https://traffic.dliu.com/docs/health) for people (diagram, plain words, technical details folded) and
-  [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines (`text/markdown`, every detail: functions,
-  guest checks, the `/health` format, what isn't tested). Both are generated from `config/health.json` by
-  `make health-docs` (`scripts/health-docs.js`); the tests fail if they are out of date.
+- The **Testing** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people (diagram, plain words,
+  technical details folded), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines
+  (`text/markdown`, every detail: functions, guest checks, the `/health` format, what isn't tested). Both are generated
+  from `config/health.json` by `make health-docs` (`scripts/health-docs.js`), which writes the tab into `web/docs.html`
+  between its `health:start` and `health:end` markers; the tests fail if either is out of date. The old `/docs/health`
+  URL answers `301` to `/docs#health`.
 - `GET /health` (`lambda/dashboard/health.js`), `application/health+json`, 200 for pass/warn and 503 for fail. Its
   CloudFront behavior forwards no cookies, headers or query string and caches the answer 60 s; the handler answers it
   before reading any of them. One cheap read per function: `public-stats` (HeadObject `stats/7d.json`), `signin`

@@ -15,8 +15,6 @@ describe('dashboard-pages CloudFront function', () => {
     ['/page', '/page.html'],
     ['/bots', '/bots.html'],
     ['/abuse-check', '/abuse-check.html'],
-    ['/docs/health', '/docs-health.html'],
-    ['/docs/health/', '/docs-health.html'],
     ['/docs/health.md', '/docs-health.md'],
   ])('maps %s to %s', (uri, expected) => {
     expect(uriFor(uri)).toBe(expected);
@@ -32,6 +30,8 @@ describe('dashboard-pages CloudFront function', () => {
     ['/detect-bot', '/docs#bot-detection'],
     ['/cost', '/docs#cost'],
     ['/security/', '/docs#security'],
+    ['/docs/health', '/docs#health'],
+    ['/docs/health/', '/docs#health'],
   ])('redirects the old %s to %s', (uri, location) => {
     const response = handler({ request: { uri } });
     expect(response.statusCode).toBe(301);

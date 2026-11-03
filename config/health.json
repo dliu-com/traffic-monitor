@@ -74,8 +74,8 @@
   ],
   "checks": [
     { "function": "pages", "path": "/", "status": 200, "type": "text/html", "marker": "dl-header", "slowMs": 2000 },
-    { "function": "pages", "path": "/docs", "status": 200, "type": "text/html", "marker": "dl-tabs", "slowMs": 2000 },
-    { "function": "pages", "path": "/docs/health", "status": 200, "type": "text/html", "marker": "dg-flow", "slowMs": 2000 },
+    { "function": "pages", "path": "/docs", "status": 200, "type": "text/html", "marker": "id=\"health\"", "slowMs": 2000 },
+    { "function": "pages", "path": "/docs/health", "status": 301, "location": "/docs#health", "slowMs": 2000 },
     { "function": "pages", "path": "/docs/health.md", "status": 200, "type": "text/markdown", "marker": "# traffic.dliu.com health checks", "slowMs": 2000 },
     { "function": "public-stats", "path": "/stats/7d.json", "status": 200, "type": "application/json", "jsonKey": "generated", "slowMs": 2000 },
     { "function": "page-script", "path": "/t/s.js", "status": 200, "type": "application/javascript", "marker": "__dlTraffic", "slowMs": 2000 },

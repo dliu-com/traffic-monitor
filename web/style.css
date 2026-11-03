@@ -121,7 +121,7 @@ body.public .private-only { display: none !important; }
 .chart .bar:focus-visible { fill: var(--dl-accent); }
 .chart .select-band { fill: var(--dl-accent); opacity: 0.18; pointer-events: none; }
 
-/* /docs/health: the pass / warn / fail boxes stand apart (no arrows between them). */
+/* /docs#health: the pass / warn / fail boxes stand apart (no arrows between them). */
 .dg-flow.dg-results { gap: 12px; }
 /* Status codes and slow limits must not break across lines in the guest-check table. */
 .dg-more td:nth-child(4), .dg-more td:nth-child(7) { white-space: nowrap; }

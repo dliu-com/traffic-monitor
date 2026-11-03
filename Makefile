@@ -65,7 +65,7 @@ compact-logs:
 	aws lambda invoke --region $(AWS_REGION) --function-name $$fn --cli-read-timeout 900 \
 		--cli-binary-format raw-in-base64-out --payload "$$payload" /dev/stdout --query FunctionError --output text
 
-# Rebuild /docs/health (web/docs-health.html) and /docs/health.md (web/docs-health.md) after editing config/health.json.
+# Rebuild the /docs#health Testing tab (in web/docs.html) and /docs/health.md (web/docs-health.md) after editing config/health.json.
 health-docs:
 	node scripts/health-docs.js
 

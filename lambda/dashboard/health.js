@@ -1,6 +1,6 @@
 'use strict';
 
-// GET /health for status.dliu.com (see /docs/health). No authentication: CloudFront forwards no cookies, headers or
+// GET /health for status.dliu.com (see /docs#health). No authentication: CloudFront forwards no cookies, headers or
 // query string, and nothing here reads them. Read only: one cheap read per dependency (an object's metadata or a
 // small fixed object, the SSM read sign-in already does, one CloudWatch metric read), never an S3 LIST, Athena query
 // or third-party call. CloudFront keeps the answer for 60 seconds, so this runs at most about once a minute.
