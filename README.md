@@ -178,6 +178,34 @@ Not cleared automatically, and why:
   and new files are added constantly; a file that was never cached needs no clearing.
 - `/api/*`, `/auth/*` and `/t/*`: never cached.
 
+## Security tests
+
+Rerunnable live checks against production (results and the threat model: [traffic.dliu.com/docs](https://traffic.dliu.com/docs), Security tab).
+Each prints `PASS|FAIL <test> | expected <x> | actual <y>` and exits with the number of failures. Run from the repo root.
+
+```sh
+bash scripts/pentest/unauth.sh                 # black box, no account needed except the AWS CLI for the direct-origin tests
+AWS_REGION=eu-west-1 node scripts/pentest/auth.js   # signed in: mints a 10-minute test session from the SSM secret
+bash scripts/pentest/beacon.sh send            # /t/e reports; prints a run id
+bash scripts/pentest/beacon.sh verify <run>    # about 10 minutes later: checks in Athena what was logged
+node scripts/pentest/auth.js --seed            # stored XSS: logs script payloads as a test visitor
+AWS_REGION=eu-west-1 node scripts/pentest/auth.js --xss  # about 10 minutes later: the API returns them as data
+```
+
+After `--xss`, open the printed visitor page signed in: no alert may appear and no `<img>`/`<script>` from the payload may be in the page.
+
+## Cost alert
+
+The stack creates an account-wide daily AWS budget (`account-daily-spending`, $10 a day) that publishes to the
+`CostAlertTopicArn` SNS topic. It warns; it stops nothing. Subscribe an address once (it is kept in AWS, not here) and
+click the confirmation link in the email:
+
+```sh
+aws sns subscribe --region eu-west-1 --protocol email --notification-endpoint user@example.com \
+  --topic-arn "$(aws cloudformation describe-stacks --region eu-west-1 --stack-name TrafficMonitor \
+    --query "Stacks[0].Outputs[?OutputKey=='CostAlertTopicArn'].OutputValue" --output text)"
+```
+
 ## Notes
 
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID

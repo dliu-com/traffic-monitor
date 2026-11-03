@@ -223,6 +223,24 @@ test('dashboard Lambda has reserved concurrency so a flood cannot starve other a
   });
 });
 
+test('account-wide daily cost budget alerts through a topic only AWS Budgets of this account can publish to', () => {
+  template.hasResourceProperties('AWS::Budgets::Budget', {
+    Budget: { BudgetType: 'COST', TimeUnit: 'DAILY', BudgetLimit: { Amount: 10, Unit: 'USD' }, CostFilters: Match.absent() },
+    NotificationsWithSubscribers: [{
+      Notification: { NotificationType: 'ACTUAL', ComparisonOperator: 'GREATER_THAN', Threshold: 100 },
+      Subscribers: [{ SubscriptionType: 'SNS', Address: { Ref: Match.stringLikeRegexp('^CostAlerts') } }],
+    }],
+  });
+  template.hasResourceProperties('AWS::SNS::TopicPolicy', {
+    PolicyDocument: { Statement: [Match.objectLike({
+      Action: 'sns:Publish',
+      Principal: { Service: 'budgets.amazonaws.com' },
+      Condition: { StringEquals: { 'aws:SourceAccount': '123456789012' } },
+    })] },
+  });
+  expect(JSON.stringify(template.toJSON())).not.toMatch(/@(?!example\.com)[a-z0-9-]+\.[a-z]/i);
+});
+
 test('dashboard Lambda can only read its own SSM parameters', () => {
   template.hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: {

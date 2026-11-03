@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Construct } from 'constructs';
 import {
   aws_athena as athena,
+  aws_budgets as budgets,
   aws_certificatemanager as acm,
   aws_cloudfront as cloudfront,
   aws_cloudfront_origins as origins,
@@ -17,6 +18,7 @@ import {
   aws_s3 as s3,
   aws_s3_deployment as s3deploy,
   aws_s3_notifications as s3n,
+  aws_sns as sns,
   CfnOutput,
   Duration,
   Fn,
@@ -779,6 +781,32 @@ export class TrafficMonitorStack extends Stack {
       exportName: 'TrafficGeoOriginRequestPolicyId',
       description: 'Origin request policy to attach on each site default behavior so the visitor function can log the city.',
     });
+    // ---------- Cost alert ----------
+    // Nothing stops a request flood from running up CloudFront and Lambda charges, so an account-wide daily
+    // budget warns the owner when a day's spend passes $10 (normal is about $0.10). It warns; it does not stop
+    // anything. Budgets checks spend a few times a day. The email subscription is added outside the code
+    // (README, "Cost alert") so no address is committed.
+    const costAlerts = new sns.Topic(this, 'CostAlerts', { displayName: 'dliu.com AWS cost alert' });
+    costAlerts.addToResourcePolicy(new iam.PolicyStatement({
+      actions: ['sns:Publish'],
+      principals: [new iam.ServicePrincipal('budgets.amazonaws.com')],
+      resources: [costAlerts.topicArn],
+      conditions: { StringEquals: { 'aws:SourceAccount': this.account } },
+    }));
+    new budgets.CfnBudget(this, 'DailyCostBudget', {
+      budget: {
+        budgetName: 'account-daily-spending',
+        budgetType: 'COST',
+        timeUnit: 'DAILY',
+        budgetLimit: { amount: 10, unit: 'USD' },
+      },
+      notificationsWithSubscribers: [{
+        notification: { notificationType: 'ACTUAL', comparisonOperator: 'GREATER_THAN', threshold: 100, thresholdType: 'PERCENTAGE' },
+        subscribers: [{ subscriptionType: 'SNS', address: costAlerts.topicArn }],
+      }],
+    });
+
+    new CfnOutput(this, 'CostAlertTopicArn', { value: costAlerts.topicArn });
     new CfnOutput(this, 'DashboardUrl', { value: siteUrl });
     new CfnOutput(this, 'AuthRedirectUri', { value: Fn.join('', [siteUrl, '/auth/callback']) });
     new CfnOutput(this, 'AthenaWorkGroup', { value: workGroup.name });
