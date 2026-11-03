@@ -81,7 +81,6 @@ function buildArticle(data) {
     stat('filter', [String(total), String(total)], ['项检查', 'checks']),
     stat('clock', ['15 分钟', '15 min'], ['检查一次', 'between test runs']),
     stat('pin', [String(places.length), String(places.length)], [`个地点：${places.map((x) => x[0]).join('、')}`, `places: ${places.map((x) => x[1]).join(', ')}`]),
-    stat('lock', ['0', '0'], ['次登录', 'sign-ins needed']),
   ].join('\n        ')}
       </div>
 
