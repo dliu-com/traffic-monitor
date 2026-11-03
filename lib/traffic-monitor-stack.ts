@@ -383,6 +383,10 @@ export class TrafficMonitorStack extends Stack {
       code: lambda.Code.fromAsset(path.join(ROOT, 'lambda/dashboard')),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      // The dashboard is public, so a flood of requests must not use up the Lambda concurrency the account's other
+      // apps share, and its cost is capped: at most 20 x 512 MB x 1 hour (about $0.60) plus $0.20 per million calls.
+      // A page loads about 10 parts at once; calls over the limit get 429.
+      reservedConcurrentExecutions: 20,
       description: 'traffic dashboard API and Microsoft Entra sign-in',
       environment: {
         SITE_URL: siteUrl,

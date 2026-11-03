@@ -216,6 +216,13 @@ test('dashboard sends security headers and serves clean info-page URLs', () => {
   });
 });
 
+test('dashboard Lambda has reserved concurrency so a flood cannot starve other apps or run up the bill', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Description: 'traffic dashboard API and Microsoft Entra sign-in',
+    ReservedConcurrentExecutions: 20,
+  });
+});
+
 test('dashboard Lambda can only read its own SSM parameters', () => {
   template.hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: {
