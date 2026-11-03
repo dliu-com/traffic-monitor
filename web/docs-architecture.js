@@ -33,7 +33,7 @@ root.append(stats([
   [t('1 年', '1 year'), t('的请求历史', 'of request history'), 'chart'],
 ]));
 
-section(t('技术架构', 'Technical architecture'));
+section(t('架构', 'Architecture'));
 root.append(tiers({
   title: t('系统总览', 'System map'),
   rows: [

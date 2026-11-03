@@ -1,92 +1,316 @@
 {
   "site": "https://traffic.dliu.com",
   "intro": [
-    "status.dliu.com 每 15 分钟以游客身份（不登录、不带 Cookie）检查一次本网站：打开公开页面和网址，再读取 /health，后者报告每项后台功能是否正常。",
-    "Every 15 minutes status.dliu.com checks this site as a guest (not signed in, no cookies): it opens the public pages and URLs, then reads /health, which reports whether each behind-the-scenes function is working."
+    "status.dliu.com 每 15 分钟以游客身份（不登录）访问一次本网站，分别从爱尔兰、弗吉尼亚和东京出发：打开公开页面，再请网站自己检查存储和定时任务，然后把每项功能记为正常、变慢或故障。",
+    "Every 15 minutes status.dliu.com visits this site as a guest, without signing in, from Ireland, Virginia and Tokyo. It opens the public pages, asks the site to check its own storage and scheduled jobs, then marks each function as working, slow or not working."
   ],
   "functions": [
     {
       "key": "pages",
-      "name": ["页面", "Pages"],
+      "name": [
+        "页面",
+        "Pages"
+      ],
       "critical": true,
-      "what": ["仪表板和文档页面能打开。", "The dashboard and the docs pages open."],
-      "down": ["访客打不开 traffic.dliu.com。", "Visitors cannot open traffic.dliu.com."]
+      "what": [
+        "打开仪表板和文档，你就能看到网站。",
+        "You can open the dashboard and the docs."
+      ],
+      "down": [
+        "打不开网站。",
+        "The site doesn't open."
+      ],
+      "tested": [
+        "打开仪表板、文档和给机器读的技术版本，确认它们按时打开。",
+        "Opens the dashboard, the docs and the technical version for machines, and checks each one opens in time."
+      ]
     },
     {
       "key": "public-stats",
-      "name": ["公开统计", "Public statistics"],
+      "name": [
+        "公开统计",
+        "Public statistics"
+      ],
       "critical": false,
-      "what": ["游客看到的 7、30 和 90 天总计每天更新。", "The 7, 30 and 90-day totals guests see are refreshed every day."],
-      "down": ["游客看到的数字停在旧的一天。", "Guests see numbers stuck on an old day."],
+      "what": [
+        "游客看到的 7、30 和 90 天访问数字每天更新。",
+        "The 7, 30 and 90-day visit numbers guests see are updated every day."
+      ],
+      "down": [
+        "数字停在旧的一天。",
+        "The numbers are stuck on an old day."
+      ],
       "health": {
-        "reads": ["stats/7d.json 的修改时间（S3 HeadObject）", "When stats/7d.json was last written (S3 HeadObject)"],
-        "pass": ["26 小时内", "Within 26 hours"],
-        "warn": ["26–50 小时", "26–50 hours"],
-        "fail": ["超过 50 小时或读取失败", "Older than 50 hours, or the read fails"]
-      }
+        "reads": [
+          "stats/7d.json 的修改时间（S3 HeadObject）",
+          "When stats/7d.json was last written (S3 HeadObject)"
+        ],
+        "pass": [
+          "26 小时内",
+          "Within 26 hours"
+        ],
+        "warn": [
+          "26–50 小时",
+          "26–50 hours"
+        ],
+        "fail": [
+          "超过 50 小时或读取失败",
+          "Older than 50 hours, or the read fails"
+        ]
+      },
+      "tested": [
+        "下载游客看到的数字，并问网站它们是多久以前算出来的。",
+        "Downloads the numbers guests see, and asks the site how long ago they were worked out."
+      ]
     },
     {
       "key": "page-script",
-      "name": ["页面脚本", "Page script"],
+      "name": [
+        "页面脚本",
+        "Page script"
+      ],
       "critical": false,
-      "what": ["各网站加载的页面脚本 /t/s.js 可以下载。", "The page script the sites load, /t/s.js, downloads."],
-      "down": ["各网站不再报告页面停留时间和点击。", "The sites stop reporting time on page and clicks."]
+      "what": [
+        "各网站加载的小脚本能下载，用来记录停留时间和点击。",
+        "The small script every site loads downloads, so time on page and clicks are recorded."
+      ],
+      "down": [
+        "各网站不再记录停留时间和点击；访客自己看不出区别。",
+        "The sites stop recording time on page and clicks; visitors themselves notice nothing."
+      ],
+      "tested": [
+        "下载这个小脚本，确认内容正确。",
+        "Downloads the small script and checks it is the right one."
+      ]
     },
     {
       "key": "signin",
-      "name": ["Microsoft 登录", "Microsoft sign-in"],
+      "name": [
+        "Microsoft 登录",
+        "Microsoft sign-in"
+      ],
       "critical": false,
-      "what": ["“登录”会转到 Microsoft，未登录时私人数据保持锁定。", "Sign in sends you to Microsoft, and private data stays locked without it."],
-      "down": ["网站主人无法登录查看完整仪表板；游客不受影响。", "The owner cannot sign in to see the full dashboard; guests are not affected."],
+      "what": [
+        "“登录”会转到 Microsoft，未登录时私人数据保持锁定。",
+        "Sign in takes you to Microsoft, and private data stays locked until you do."
+      ],
+      "down": [
+        "网站主人无法登录查看完整仪表板；游客不受影响。",
+        "The owner can't sign in to see the full dashboard; guests notice nothing."
+      ],
       "health": {
-        "reads": ["登录设置（SSM GetParameters，与登录相同的读取，缓存 5 分钟）", "The sign-in settings (SSM GetParameters, the same read sign-in does, cached 5 minutes)"],
-        "pass": ["读取成功", "The read succeeds"],
-        "warn": ["—", "—"],
-        "fail": ["读取失败或超时", "The read fails or times out"]
-      }
+        "reads": [
+          "登录设置（SSM GetParameters，与登录相同的读取，缓存 5 分钟）",
+          "The sign-in settings (SSM GetParameters, the same read sign-in does, cached 5 minutes)"
+        ],
+        "pass": [
+          "读取成功",
+          "The read succeeds"
+        ],
+        "warn": [
+          "—",
+          "—"
+        ],
+        "fail": [
+          "读取失败或超时",
+          "The read fails or times out"
+        ]
+      },
+      "tested": [
+        "点“登录”，确认会转到 Microsoft；不登录去要私人数据，确认被拒绝；再问网站能否读取它的登录设置。",
+        "Clicks Sign in and checks it goes to Microsoft, asks for private data without signing in and checks it is refused, then asks the site whether it can read its sign-in settings."
+      ]
     },
     {
       "key": "logging",
-      "name": ["请求记录", "Request logging"],
+      "name": [
+        "请求记录",
+        "Request logging"
+      ],
       "critical": true,
-      "what": ["CloudFront 送来的各网站日志文件被及时整理归档。", "The log files CloudFront delivers for every site are filed as they arrive."],
-      "down": ["新的访问不再被记录，仪表板停在过去。", "New visits are no longer recorded, and the dashboard stops moving."],
+      "what": [
+        "每个网站的每次访问都被及时记录下来。",
+        "Every visit to every site is recorded as it happens."
+      ],
+      "down": [
+        "新的访问不再被记录，仪表板停在过去。",
+        "New visits stop being recorded and the dashboard stands still."
+      ],
       "health": {
-        "reads": ["日志整理函数最近 3 小时的调用次数（CloudWatch GetMetricStatistics，一个指标）", "How often the log partitioner ran in the last 3 hours (CloudWatch GetMetricStatistics, one metric)"],
-        "pass": ["至少一次", "At least once"],
-        "warn": ["—", "—"],
-        "fail": ["一次都没有，或读取失败", "Not at all, or the read fails"]
-      }
+        "reads": [
+          "日志整理函数最近 3 小时的调用次数（CloudWatch GetMetricStatistics，一个指标）",
+          "How often the log partitioner ran in the last 3 hours (CloudWatch GetMetricStatistics, one metric)"
+        ],
+        "pass": [
+          "至少一次",
+          "At least once"
+        ],
+        "warn": [
+          "—",
+          "—"
+        ],
+        "fail": [
+          "一次都没有，或读取失败",
+          "Not at all, or the read fails"
+        ]
+      },
+      "tested": [
+        "问网站最近 3 小时有没有整理过新的访问记录。",
+        "Asks the site whether it filed any new visit records in the last 3 hours."
+      ]
     },
     {
       "key": "bot-check",
-      "name": ["机器人检查", "Bot check"],
+      "name": [
+        "机器人检查",
+        "Bot check"
+      ],
       "critical": false,
-      "what": ["每 6 小时一次的机器人检查按时完成，它使用的托管网络列表每周更新。", "The bot check that runs every 6 hours finishes on time, and the hosting network list it uses is refreshed weekly."],
-      "down": ["机器人会被算作真人，访问人数虚高。", "Bots get counted as people, so visitor numbers run high."],
+      "what": [
+        "机器人被认出来，不会算作真人访客。",
+        "Bots are recognised, so they aren't counted as people."
+      ],
+      "down": [
+        "机器人被算作真人，访问人数虚高。",
+        "Bots get counted as people, so visitor numbers run high."
+      ],
       "health": {
-        "reads": ["上次运行的状态 bots/status.json（S3 GetObject，一个小文件）和 hosting/asns.json 的修改时间（S3 HeadObject）", "The last run's status, bots/status.json (S3 GetObject, one small file), and when hosting/asns.json was last written (S3 HeadObject)"],
-        "pass": ["7 小时内完成，且列表在 8 天内更新", "Finished within 7 hours, and the list is under 8 days old"],
-        "warn": ["7–25 小时，或上次运行失败，或列表更旧", "7–25 hours, or the last run failed, or the list is older"],
-        "fail": ["超过 25 小时或读取失败", "Older than 25 hours, or the read fails"]
-      }
+        "reads": [
+          "上次运行的状态 bots/status.json（S3 GetObject，一个小文件）和 hosting/asns.json 的修改时间（S3 HeadObject）",
+          "The last run's status, bots/status.json (S3 GetObject, one small file), and when hosting/asns.json was last written (S3 HeadObject)"
+        ],
+        "pass": [
+          "7 小时内完成，且列表在 8 天内更新",
+          "Finished within 7 hours, and the list is under 8 days old"
+        ],
+        "warn": [
+          "7–25 小时，或上次运行失败，或列表更旧",
+          "7–25 hours, or the last run failed, or the list is older"
+        ],
+        "fail": [
+          "超过 25 小时或读取失败",
+          "Older than 25 hours, or the read fails"
+        ]
+      },
+      "tested": [
+        "问网站上次机器人检查是什么时候完成的，以及它用的托管网络列表有多旧。",
+        "Asks the site when the bot check last finished and how old its list of hosting networks is."
+      ]
     }
   ],
   "checks": [
-    { "function": "pages", "path": "/", "status": 200, "type": "text/html", "marker": "dl-header", "slowMs": 2000 },
-    { "function": "pages", "path": "/docs", "status": 200, "type": "text/html", "marker": "id=\"health\"", "slowMs": 2000 },
-    { "function": "pages", "path": "/docs/health", "status": 301, "location": "/docs#health", "slowMs": 2000 },
-    { "function": "pages", "path": "/docs/health.md", "status": 200, "type": "text/markdown", "marker": "# traffic.dliu.com health checks", "slowMs": 2000 },
-    { "function": "public-stats", "path": "/stats/7d.json", "status": 200, "type": "application/json", "jsonKey": "generated", "slowMs": 2000 },
-    { "function": "page-script", "path": "/t/s.js", "status": 200, "type": "application/javascript", "marker": "__dlTraffic", "slowMs": 2000 },
-    { "function": "signin", "path": "/auth/login", "status": 302, "location": "https://login.microsoftonline.com/", "slowMs": 3000 },
-    { "function": "signin", "path": "/api/me", "status": 401, "type": "application/json", "jsonKey": "error", "slowMs": 3000 }
+    {
+      "function": "pages",
+      "path": "/",
+      "status": 200,
+      "type": "text/html",
+      "marker": "dl-header",
+      "slowMs": 2000
+    },
+    {
+      "function": "pages",
+      "path": "/docs",
+      "status": 200,
+      "type": "text/html",
+      "marker": "id=\"health\"",
+      "slowMs": 2000
+    },
+    {
+      "function": "pages",
+      "path": "/docs/health",
+      "status": 301,
+      "location": "/docs#health",
+      "slowMs": 2000
+    },
+    {
+      "function": "pages",
+      "path": "/docs/health.md",
+      "status": 200,
+      "type": "text/markdown",
+      "marker": "# traffic.dliu.com health checks",
+      "slowMs": 2000
+    },
+    {
+      "function": "public-stats",
+      "path": "/stats/7d.json",
+      "status": 200,
+      "type": "application/json",
+      "jsonKey": "generated",
+      "slowMs": 2000
+    },
+    {
+      "function": "page-script",
+      "path": "/t/s.js",
+      "status": 200,
+      "type": "application/javascript",
+      "marker": "__dlTraffic",
+      "slowMs": 2000
+    },
+    {
+      "function": "signin",
+      "path": "/auth/login",
+      "status": 302,
+      "location": "https://login.microsoftonline.com/",
+      "slowMs": 3000
+    },
+    {
+      "function": "signin",
+      "path": "/api/me",
+      "status": 401,
+      "type": "application/json",
+      "jsonKey": "error",
+      "slowMs": 3000
+    }
   ],
   "untested": [
-    ["已登录后的仪表板：每个组件背后的 Athena 查询只对网站主人开放。", "The signed-in dashboard: the Athena queries behind every widget are for the owner only."],
-    ["“立即检查机器人”按钮和 AbuseIPDB 信誉查询（需要登录，且 AbuseIPDB 每天的免费额度有限）。", "The Check bots now button and the AbuseIPDB reputation lookups (they need a sign-in, and AbuseIPDB's free allowance is limited)."],
-    ["页面脚本的上报 /t/e：测试上报会被算作一次真实访问。", "The page script's reports to /t/e: a test report would count as a real visit."],
-    ["在 Microsoft 完成登录本身（需要一个获准的账户）。", "Completing the sign-in at Microsoft (it needs an assigned account)."],
-    ["每日日志合并和每月城市数据库下载只能间接看到：它们出问题时，公开统计或机器人检查会变旧。", "The daily log merge and the monthly city database download are seen only indirectly: when they break, Public statistics or Bot check go stale."]
+    {
+      "plain": [
+        "登录后才能看到的完整仪表板。",
+        "The full dashboard you only see after signing in."
+      ],
+      "detail": "The signed-in dashboard: the Athena queries behind every widget are for the owner only."
+    },
+    {
+      "plain": [
+        "“立即检查机器人”按钮和 IP 信誉查询：需要登录，而且每天的免费查询次数有限。",
+        "The Check bots now button and the IP reputation lookups: they need a sign-in, and the free lookups per day are limited."
+      ],
+      "detail": "The Check bots now button and the AbuseIPDB reputation lookups (they need a sign-in, and AbuseIPDB's free allowance is limited)."
+    },
+    {
+      "plain": [
+        "小脚本发回的报告：测试报告会被算作一次真实访问。",
+        "The reports the small script sends back: a test report would count as a real visit."
+      ],
+      "detail": "The page script's reports to /t/e: a test report would count as a real visit."
+    },
+    {
+      "plain": [
+        "在 Microsoft 完成登录：需要一个获准的账户。",
+        "Finishing the sign-in at Microsoft: it needs an approved account."
+      ],
+      "detail": "Completing the sign-in at Microsoft (it needs an assigned account)."
+    },
+    {
+      "plain": [
+        "每天合并访问记录和每月下载城市数据库只能间接看到：它们出问题时，公开数字或机器人检查会变旧。",
+        "The daily merge of visit records and the monthly city database download are seen only indirectly: when they break, the public numbers or the bot check go out of date."
+      ],
+      "detail": "The daily log merge and the monthly city database download are seen only indirectly: when they break, Public statistics or Bot check go stale."
+    }
+  ],
+  "places": [
+    [
+      "爱尔兰",
+      "Ireland"
+    ],
+    [
+      "弗吉尼亚",
+      "Virginia"
+    ],
+    [
+      "东京",
+      "Tokyo"
+    ]
   ]
 }

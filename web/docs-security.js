@@ -296,5 +296,5 @@ root.append(more(t('更多技术细节（文字）', 'More technical details (te
 
 const footer = document.createElement('p');
 footer.className = 'source';
-footer.textContent = t('源代码：dliu-com/traffic-monitor（安全测试：scripts/pentest/）· 另见“技术架构”和“成本”选项卡。', 'Source: dliu-com/traffic-monitor (security tests: scripts/pentest/) · See also the Technical architecture and Cost tabs.');
+footer.textContent = t('源代码：dliu-com/traffic-monitor（安全测试：scripts/pentest/）· 另见“架构”和“成本”选项卡。', 'Source: dliu-com/traffic-monitor (security tests: scripts/pentest/) · See also the Architecture and Cost tabs.');
 root.append(footer);

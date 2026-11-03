@@ -146,25 +146,43 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(FUNCTIONS).toEqual(source.functions.filter((f) => f.health).map((f) => ({ key: f.key, name: f.name[1] })));
     for (const { key, name } of source.functions) {
       expect(md).toContain(`| \`${key}\` | ${name[1]} |`);
-      expect(article).toContain(`data-zh="${name[0]}">${name[1]}</td>`);
+      expect(article).toContain(`<tr><td data-zh="${name[0]}">${name[1]}</td>`);
+      expect(article).toContain(`text-anchor="end" data-zh="${name[0]}">${name[1]}</text>`);
     }
-    for (const key of healthKeys) expect(article).toContain(`<td><code>${key}</code></td>`);
+    for (const key of healthKeys) expect(md).toContain(`"key": "${key}"`);
     for (const check of source.checks) expect(source.functions.map((f) => f.key)).toContain(check.function);
   });
 
-  test('the Testing tab has the diagram, plain words and every technical detail folded', () => {
+  test('the Testing tab shows rather than tells: big numbers, flows, a table and a chart', () => {
     expect(article.startsWith('    <article id="health" class="dl-docs" hidden>')).toBe(true);
+    expect(article).toContain('<div class="dg-stats">');
+    expect(article.match(/<div class="dg-stat" data-icon="/g).length).toBeGreaterThanOrEqual(4);
+    expect(article).toContain(`<strong data-zh="${source.functions.length}">${source.functions.length}</strong><small data-zh="项功能被测试">functions tested</small>`);
     expect(article).toContain('<div class="dg-flow" role="list">');
     expect(article).toContain('<span class="dg-arrow">');
     expect(article).toContain('<div class="dg-flow dg-results" role="list">');
     for (const tone of ['good', 'warn', 'bad']) expect(article).toContain(`class="dg-step dg-${tone}"`);
-    const details = article.match(/<details[^>]*>/g);
-    expect(details.length).toBe(3);
-    for (const tag of details) expect(tag).toBe('<details class="dg-more">');
-    // Technical details (URLs, status codes, the JSON) appear only inside the folded blocks.
-    const outside = article.replace(/<details[\s\S]*?<\/details>/g, '');
-    expect(outside).not.toMatch(/application\/health\+json|<code>|<pre>|max-age|https:\/\/traffic\.dliu\.com\//);
-    expect(article).toContain('<a href="/docs/health.md" data-zh="完整技术版本（Markdown）">Full technical version (Markdown)</a>');
+    expect(article).toContain('<th data-zh="怎么测试">How it is tested</th>');
+    expect(article).toContain('<figure class="dg chart health-chart">');
+    expect(article.match(/<rect class="bar"/g).length).toBe(source.functions.length);
+    expect(article).toContain('<h2 data-zh="没有测试的内容">What isn\'t tested</h2>');
+    expect(article.trimEnd().endsWith('<p><a href="/docs/health.md" data-zh="给机器读的技术版本（Markdown）">Technical version for machines (Markdown)</a></p>\n    </article>')).toBe(true);
+  });
+
+  test('the Testing tab has no exact technical details: no code, folded blocks, status codes, headers, content types or JSON', () => {
+    expect(article).not.toMatch(/<details|<summary|<code|<pre|data-lang=/);
+    const text = article.replace(/<[^>]*>/g, ' ');
+    expect(text).not.toMatch(/https?:\/\//);
+    expect(text).not.toMatch(/\b(200|301|302|401|403|404|405|500|503)\b/);
+    expect(text).not.toMatch(/application\/|text\/(html|markdown)|content-type|cache-control|authorization|max-age|\{|\}/i);
+    expect(text).not.toMatch(/\b(GET|HEAD|POST|Location)\b/);
+    for (const check of source.checks) {
+      if (check.marker) expect(text).not.toContain(check.marker.replace(/"/g, '&quot;'));
+      if (check.jsonKey) expect(text).not.toContain(`"${check.jsonKey}"`);
+    }
+    // High-level details are fine: which pages and endpoints are tested.
+    expect(text).toContain('/health');
+    expect(text).toContain('/auth/login');
   });
 
   test('the Testing tab sits next to the other /docs tabs and loads its script', () => {
@@ -194,7 +212,7 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(md).toContain('application/health+json');
     expect(md).toContain('dliu-status-bot/1.0 (+https://status.dliu.com/docs)');
     expect(md).toContain('Location starts with https://login.microsoftonline.com/');
-    for (const item of source.untested) expect(md).toContain(`- ${item[1]}`);
+    for (const item of source.untested) expect(md).toContain(`- ${item.detail}`);
   });
 
   test('the guest checks match what the site serves', () => {

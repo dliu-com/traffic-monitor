@@ -16,7 +16,7 @@ const DOCS_TABS = ['architecture', 'bot-detection', 'cost', 'security', 'health'
 const ALL_PAGES = [...APP_PAGES, ...DOCS_PAGES];
 // The shared docs tab names (https://files.dliu.com/dliu.com/README.md), in Chinese and English.
 const TAB_NAMES = {
-  architecture: ['技术架构', 'Technical architecture'],
+  architecture: ['架构', 'Architecture'],
   'bot-detection': ['机器人识别', 'Bot detection'],
   cost: ['成本', 'Cost'],
   security: ['安全', 'Security'],

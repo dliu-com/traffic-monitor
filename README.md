@@ -39,9 +39,9 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
   - Every widget loads on its own (`/api/overview`, `/api/page`, `/api/ip` and `/api/visitor` take `part=`), with a spinner until its data arrives.
   - Tables are paged and searched in Athena through `/api/list`, so only the rows on screen are downloaded (at most 100 per call).
 - **Docs** – `https://traffic.dliu.com/docs`, public, one page with tabs like the other dliu.com apps:
-  Technical architecture `#architecture` (diagrams of the architecture and sign-in flow), Bot detection
-  `#bot-detection` (the bot rules and checks), Cost `#cost` (the monthly bill and the cost per page load) and `#security` (threat model, live penetration-test results
-  and accepted risks). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
+  Architecture `#architecture` (diagrams of the architecture and sign-in flow), Bot detection
+  `#bot-detection` (the bot rules and checks), Cost `#cost` (the monthly bill and the cost per page load) Security `#security` (threat model, live penetration-test results
+  and accepted risks) and Testing `#health` (how status.dliu.com tests the site, in plain words, numbers, flows and a chart). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
 - **Chinese / English** – every page, the docs and the sign-in error page have the shared 中文 | English switch.
 
 ```
@@ -143,7 +143,7 @@ filter in `bin/traffic-monitor.ts`), then again with the new ID in `config/distr
 ## Look (shared dliu.com UI)
 
 The dashboard uses the shared dliu.com look ([spec](https://files.dliu.com/dliu.com/README.md)): every page in `web/`
-loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs page `/docs`, with the shared tab names Technical architecture,
+loads `https://files.dliu.com/dliu.com/ui/v1/dl.css` first (the docs page `/docs`, with the shared tab names Architecture,
 Bot detection, Cost and Security, also loads `dl-docs.css` and uses `dl-tabs`), and has the shared header and footer. Top left is the app's
 logo and name ("DL Traffic"; `web/logo.svg`, a white bar chart on the DL blue #209cee, is also the favicon), and
 the footer starts with the shared DL logo.
@@ -191,8 +191,9 @@ Not cleared automatically, and why:
 
 [status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest, following its health contract:
 
-- The **Testing** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people (diagram, plain words,
-  technical details folded), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines
+- The **Testing** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: big numbers, flows, a
+  plain-words table per function and a checks-per-function chart, naming only which pages and endpoints are tested (no
+  status codes, headers, content types or JSON), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines
   (`text/markdown`, every detail: functions, guest checks, the `/health` format, what isn't tested). Both are generated
   from `config/health.json` by `make health-docs` (`scripts/health-docs.js`), which writes the tab into `web/docs.html`
   between its `health:start` and `health:end` markers; the tests fail if either is out of date. The old `/docs/health`

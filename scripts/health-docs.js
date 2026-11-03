@@ -20,7 +20,6 @@ const USER_AGENT = 'dliu-status-bot/1.0 (+https://status.dliu.com/docs)';
 const esc = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // An element whose text switches language (i18n.js swaps in data-zh); it must hold plain text only.
 const tr = (tag, [zh, en], attrs = '') => `<${tag}${attrs} data-zh="${esc(zh)}">${esc(en)}</${tag}>`;
-const code = (text) => `<code>${esc(text)}</code>`;
 const ARROW = '<span class="dg-arrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></span>';
 
 const step = (iconName, title, text, tone) => `<div class="dg-step${tone ? ` dg-${tone}` : ''}" role="listitem"${iconName ? ` data-icon="${iconName}"` : ''}><span class="dg-text">${tr('strong', title)}${tr('small', text)}</span></div>`;
@@ -30,19 +29,94 @@ function expectText(check) {
   if (check.jsonKey) return [`JSON 含键 "${check.jsonKey}"`, `JSON with key "${check.jsonKey}"`];
   return [`正文包含 "${check.marker}"`, `body contains "${check.marker}"`];
 }
-// Mixed text and code in both languages: docs-health.js shows the reader's language (English without JavaScript).
-const both = (tag, zh, en) => `<${tag} data-lang="en">${en}</${tag}>\n<${tag} data-lang="zh" hidden>${zh}</${tag}>`;
 
 const tableHtml = (head, rows) => `<div class="table-wrap"><table>
-<thead><tr>${head.map((h) => (Array.isArray(h) ? tr('th', h) : `<th>${esc(h)}</th>`)).join('')}</tr></thead>
+<thead><tr>${head.map((h) => tr('th', h)).join('')}</tr></thead>
 <tbody>
-${rows.map((row) => `<tr>${row.map((cell) => (Array.isArray(cell) ? tr('td', cell) : `<td>${cell}</td>`)).join('')}</tr>`).join('\n')}
+${rows.map((row) => `<tr>${row.map((cell) => (Array.isArray(cell) ? tr('td', cell) : `<td>${esc(cell)}</td>`)).join('')}</tr>`).join('\n')}
 </tbody>
 </table></div>`;
 
-const details = (summary, body) => `<details class="dg-more">${tr('summary', summary)}<div>
-${body}
-</div></details>`;
+// What a person sees: high-level pages and endpoints only, no status codes, headers, content types or JSON.
+const pageName = (p) => (p === '/' ? ['首页', 'home page'] : [p, p]);
+function testedPaths(data, fn) {
+  const paths = data.checks.filter((c) => c.function === fn.key).map((c) => pageName(c.path));
+  if (fn.health) paths.push(['/health', '/health']);
+  return [paths.map((x) => x[0]).join('、'), paths.map((x) => x[1]).join(', ')];
+}
+const checkCount = (data, fn) => data.checks.filter((c) => c.function === fn.key).length + (fn.health ? 1 : 0);
+
+// A horizontal bar chart in SVG (attributes only: the CSP forbids inline styles).
+function chart(data) {
+  const rows = data.functions.map((f) => [f.name, checkCount(data, f)]);
+  const max = Math.max(...rows.map(([, n]) => n));
+  const rowHeight = 34;
+  const height = rows.length * rowHeight;
+  const bars = rows.map(([name, n], i) => {
+    const y = i * rowHeight;
+    const width = Math.round((n / max) * 360);
+    return `<text class="axis" x="170" y="${y + 21}" text-anchor="end" data-zh="${esc(name[0])}">${esc(name[1])}</text>`
+      + `<rect class="bar" x="180" y="${y + 6}" width="${width}" height="22" rx="4"/>`
+      + `<text class="axis" x="${188 + width}" y="${y + 21}">${n}</text>`;
+  }).join('\n        ');
+  return `<figure class="dg chart health-chart">${tr('figcaption', ['每项功能有几项检查', 'How many checks each function has'])}
+        <svg viewBox="0 0 600 ${height}" role="img" aria-label="Checks per function" data-zh-label="每项功能的检查数">
+        ${bars}
+        </svg>
+      </figure>`;
+}
+
+function buildArticle(data) {
+  const total = data.functions.reduce((sum, f) => sum + checkCount(data, f), 0);
+  const places = data.places;
+  const stat = (iconName, value, label) => `<div class="dg-stat" data-icon="${iconName}"><span class="dg-text">${tr('strong', value)}${tr('small', label)}</span></div>`;
+  const critical = data.functions.filter((f) => f.critical).map((f) => f.name);
+  return `    <article id="health" class="dl-docs" hidden>
+      <h2 data-zh="如何测试本网站">How this site is tested</h2>
+      ${tr('p', data.intro, ' class="lead"')}
+
+      <div class="dg-stats">
+        ${[
+    stat('check', [String(data.functions.length), String(data.functions.length)], ['项功能被测试', 'functions tested']),
+    stat('filter', [String(total), String(total)], ['项检查', 'checks']),
+    stat('clock', ['15 分钟', '15 min'], ['检查一次', 'between test runs']),
+    stat('pin', [String(places.length), String(places.length)], [`个地点：${places.map((x) => x[0]).join('、')}`, `places: ${places.map((x) => x[1]).join(', ')}`]),
+    stat('lock', ['0', '0'], ['次登录', 'sign-ins needed']),
+  ].join('\n        ')}
+      </div>
+
+      <figure class="dg">${tr('figcaption', ['一次测试怎么进行', 'How a test run goes'])}<div class="dg-flow" role="list">
+        ${[
+    step('eye', ['status.dliu.com', 'status.dliu.com'], [`以游客身份，从${places.map((x) => x[0]).join('、')}`, `As a guest, from ${places.map((x) => x[1]).join(', ')}`]),
+    step('browser', ['打开公开页面', 'Opens the public pages'], ['首页、文档、公开数字、小脚本和“登录”按钮', 'Home page, docs, public numbers, the small script and the Sign in button']),
+    step('lambda', ['请网站检查自己', 'Asks the site to check itself'], ['/health 查看存储、登录设置和定时任务', '/health looks at its storage, sign-in settings and scheduled jobs']),
+    step('chart', ['记下结果', 'Records the result'], ['每项功能一个结果，显示在 status.dliu.com', 'One result per function, shown on status.dliu.com']),
+  ].join(`\n        ${ARROW}\n        `)}
+      </div></figure>
+
+      <figure class="dg">${tr('figcaption', ['每项检查的结果', 'What each result means'])}<div class="dg-flow dg-results" role="list">
+        ${step('check', ['正常', 'Working'], ['一切如常', 'Everything as expected'], 'good')}
+        ${step('clock', ['变慢或变旧', 'Slow or out of date'], ['还能用，但慢了或数据旧了', 'Still works, but slow or showing old data'], 'warn')}
+        ${step('shield', ['故障', 'Not working'], ['访客会注意到', 'Visitors notice'], 'bad')}
+      </div></figure>
+
+      <h2 data-zh="测试的功能">Functions tested</h2>
+${tableHtml(
+    [['功能', 'Function'], ['✓ 正常时', '✓ When it works'], ['怎么测试', 'How it is tested'], ['测试的页面和接口', 'Pages and endpoints tested'], ['✗ 出故障时访客会注意到', '✗ If it stopped working, a visitor would notice']],
+    data.functions.map((f) => [f.name, f.what, f.tested, testedPaths(data, f), f.down]),
+  )}
+      ${tr('p', [`“${critical.map((x) => x[0]).join('”或“')}”出故障时，整个网站算作宕机；其他功能出故障时，网站算作部分可用。`, `The site counts as down when ${critical.map((x) => x[1]).join(' or ')} stops working; when anything else stops working it counts as partly working.`])}
+
+      ${chart(data)}
+
+      <h2 data-zh="没有测试的内容">What isn't tested</h2>
+      <ul>
+${data.untested.map((item) => `        ${tr('li', item.plain)}`).join('\n')}
+      </ul>
+
+      <p><a href="/docs/health.md" data-zh="给机器读的技术版本（Markdown）">Technical version for machines (Markdown)</a></p>
+    </article>`;
+}
 
 function healthExample(data) {
   return JSON.stringify({
@@ -50,83 +124,6 @@ function healthExample(data) {
     time: '2026-11-03T23:00:00Z',
     functions: data.functions.filter((f) => f.health).map((f) => ({ key: f.key, name: f.name[1], status: 'pass' })),
   }, null, 2);
-}
-
-function buildArticle(data) {
-  const withHealth = data.functions.filter((f) => f.health);
-  const checks = tableHtml(
-    [['功能', 'Function'], ['方法', 'Method'], ['网址', 'URL'], ['状态码', 'Status'], ['内容类型', 'Content type'], ['预期', 'Expect'], ['慢于', 'Slow after']],
-    data.checks.map((c) => [code(c.function), 'GET', code(data.site + c.path), code(String(c.status)), c.type ? code(c.type) : '—', expectText(c), `${c.slowMs} ms`]),
-  );
-  const endpoint = `${both('ul', `
-<li>${code('GET ' + data.site + '/health')}（也可用 HEAD），无需登录。</li>
-<li>CloudFront 不转发 Cookie、${code('Authorization')} 请求头和查询字符串，处理程序也不读取它们。</li>
-<li>在 CloudFront 缓存 60 秒（${code('cache-control: public, max-age=60')}），所以无论请求多频繁，每分钟最多检查一次。</li>
-<li>只读：每个依赖一次低成本读取；不写入、不列出 S3、不运行 Athena 查询、不调用 AbuseIPDB。</li>
-<li>每项检查 2 秒超时，整个响应在 5 秒内返回。</li>
-<li>${code('Content-Type: application/health+json')}；${code('pass')} 或 ${code('warn')} 时 HTTP 200，${code('fail')} 时 503。</li>
-<li>${code('output')} 只是简短原因，如 ${code('timeout')}、${code('read failed')} 或 ${code('stale')}，不含名称、数量或用户数据。</li>
-`, `
-<li>${code('GET ' + data.site + '/health')} (HEAD also works), no sign-in.</li>
-<li>CloudFront forwards no cookies, no ${code('Authorization')} header and no query string, and the handler reads none of them.</li>
-<li>Cached 60 s at CloudFront (${code('cache-control: public, max-age=60')}), so the checks run at most about once a minute however often it is requested.</li>
-<li>Read only: one cheap read per dependency; no writes, no S3 LIST, no Athena query and no AbuseIPDB call.</li>
-<li>Each check times out after 2 s; the whole response returns within 5 s.</li>
-<li>${code('Content-Type: application/health+json')}; HTTP 200 for ${code('pass')} or ${code('warn')}, 503 for ${code('fail')}.</li>
-<li>${code('output')} is only a short reason such as ${code('timeout')}, ${code('read failed')} or ${code('stale')}, with no names, counts or user data.</li>
-`)}
-<pre><code>${esc(healthExample(data))}</code></pre>
-${tableHtml(
-    [['键', 'Key'], ['读取内容', 'What it reads'], ['正常', 'pass'], ['警告', 'warn'], ['故障', 'fail']],
-    withHealth.map((f) => [code(f.key), f.health.reads, f.health.pass, f.health.warn, f.health.fail]),
-  )}`;
-  const rules = both('ul', `
-<li>只用 ${code('GET')} 或 ${code('HEAD')}，不带 Cookie，用户代理为 ${code(USER_AGENT)}；traffic.dliu.com 会从日志中丢弃这个用户代理的请求。</li>
-<li>不要向 ${code('/t/e')} 或 ${code('/api/')} 发送 ${code('POST')}；测试只读，从不改变任何内容。</li>
-<li>不要跟随 ${code('/auth/login')} 的跳转，只检查状态码和 ${code('Location')}。</li>
-`, `
-<li>Requests are ${code('GET')} or ${code('HEAD')} only, with no cookies and the user agent ${code(USER_AGENT)}; traffic.dliu.com drops that user agent from its logs.</li>
-<li>Never send ${code('POST')} to ${code('/t/e')} or ${code('/api/')}; the tests are read only and never change anything.</li>
-<li>Don't follow the ${code('/auth/login')} redirect; check only its status and ${code('Location')}.</li>
-`);
-
-  return `    <article id="health" class="dl-docs" hidden>
-      <h2 data-zh="如何测试本网站">How this site is tested</h2>
-      ${tr('p', data.intro, ' class="lead"')}
-
-      <figure class="dg">${tr('figcaption', ['status.dliu.com 如何测试本网站', 'How status.dliu.com tests this site'])}<div class="dg-flow" role="list">
-        ${[
-    step('eye', ['status.dliu.com', 'status.dliu.com'], ['以游客身份，每 15 分钟', 'As a guest, every 15 minutes']),
-    step('browser', ['公开页面和网址', 'Public pages and URLs'], ['仪表板、文档、公开统计、页面脚本、登录跳转', 'Dashboard, docs, public statistics, page script, sign-in redirect']),
-    step('lambda', ['/health', '/health'], ['逐项检查后台功能', 'Checks each behind-the-scenes function']),
-    step('s3', ['每项功能依赖的服务', 'What each function depends on'], ['登录设置、日志整理记录、机器人检查和统计文件', 'Sign-in settings, the log partitioner\'s record, the bot check and statistics files']),
-  ].join(`\n        ${ARROW}\n        `)}
-      </div></figure>
-
-      <figure class="dg">${tr('figcaption', ['每项检查的结果', 'What each result means'])}<div class="dg-flow dg-results" role="list">
-        ${step('check', ['正常', 'Pass'], ['一切如常', 'Working as expected'], 'good')}
-        ${step('clock', ['警告', 'Warn'], ['还能用，但变慢或变旧', 'Still works, but slow or out of date'], 'warn')}
-        ${step('shield', ['故障', 'Fail'], ['访客会受影响', 'Visitors are affected'], 'bad')}
-      </div></figure>
-
-      <h2 data-zh="检查的功能">Functions checked</h2>
-${tableHtml(
-    [['功能', 'Function'], ['检查什么', 'What is checked'], ['出故障时', 'If it is down']],
-    data.functions.map((f) => [f.name, f.what, f.down]),
-  )}
-      <p data-zh="“页面”和“请求记录”出故障时，整个网站算作宕机；其他功能出故障时，网站算作部分可用。">The site counts as down when Pages or Request logging fails; when another function fails it counts as degraded.</p>
-
-      ${details(['技术细节：游客检查', 'Technical details: guest checks'], checks)}
-      ${details(['技术细节：/health 接口', 'Technical details: the /health endpoint'], endpoint)}
-      ${details(['技术细节：测试规则', 'Technical details: rules for the tests'], rules)}
-
-      <h2 data-zh="没有测试的内容">What isn't tested</h2>
-      <ul>
-${data.untested.map((item) => `        ${tr('li', item)}`).join('\n')}
-      </ul>
-
-      <p><a href="/docs/health.md" data-zh="完整技术版本（Markdown）">Full technical version (Markdown)</a></p>
-    </article>`;
 }
 
 const START = '<!-- health:start Generated by scripts/health-docs.js from config/health.json; edit those, not this block. -->';
@@ -201,7 +198,7 @@ The \`pages\` and \`page-script\` functions have no \`/health\` entry; the guest
 
 ## Not tested
 
-${data.untested.map((item) => `- ${en(item)}`).join('\n')}
+${data.untested.map((item) => `- ${item.detail}`).join('\n')}
 
 ## Rules
 

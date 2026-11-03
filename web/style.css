@@ -123,5 +123,5 @@ body.public .private-only { display: none !important; }
 
 /* /docs#health: the pass / warn / fail boxes stand apart (no arrows between them). */
 .dg-flow.dg-results { gap: 12px; }
-/* Status codes and slow limits must not break across lines in the guest-check table. */
-.dg-more td:nth-child(4), .dg-more td:nth-child(7) { white-space: nowrap; }
+/* /docs#health: the checks-per-function chart keeps its proportions instead of the dashboard charts' fixed height. */
+.health-chart svg { height: auto; max-width: 640px; }

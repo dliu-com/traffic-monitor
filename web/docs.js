@@ -6,7 +6,7 @@ import './docs-security.js';
 import './docs-health.js';
 
 const TITLES = {
-  architecture: t('技术架构', 'Technical architecture'),
+  architecture: t('架构', 'Architecture'),
   'bot-detection': t('机器人识别', 'Bot detection'),
   cost: t('成本', 'Cost'),
   security: t('安全', 'Security'),
