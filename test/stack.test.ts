@@ -51,7 +51,7 @@ test('dashboard files are revalidated on every load so deploys show at once', ()
   });
   // Scripts and styles are also kept at the edge for a day; every deploy invalidates it.
   template.hasResourceProperties('Custom::CDKBucketDeployment', {
-    Exclude: ['stats/*', '*.html'],
+    Exclude: ['stats/*', '*.html', '*.md'],
     SystemMetadata: { 'cache-control': 'public, max-age=0, must-revalidate, s-maxage=86400' },
     DistributionPaths: ['/*'],
   });
@@ -436,5 +436,47 @@ test('log merge: daily after the bot check, may delete only under logs/', () => 
   // The AbuseIPDB run history is kept 120 days.
   template.hasResourceProperties('AWS::S3::Bucket', {
     LifecycleConfiguration: { Rules: Match.arrayWith([Match.objectLike({ Id: 'expire-abuseipdb-runs', Prefix: 'abuseipdb/runs/', ExpirationInDays: 120 })]) },
+  });
+});
+
+test('/health: its own behaviour, cached 60 s and keyed on nothing, forwarding no cookies, headers or query string', () => {
+  const policies = template.findResources('AWS::CloudFront::CachePolicy', {
+    Properties: { CachePolicyConfig: Match.objectLike({ Comment: 'traffic /health: cached 60 s, keyed on nothing' }) },
+  });
+  const [id] = Object.keys(policies);
+  expect(id).toBeDefined();
+  const config = policies[id].Properties.CachePolicyConfig;
+  expect([config.MinTTL, config.DefaultTTL, config.MaxTTL]).toEqual([60, 60, 60]);
+  const keys = config.ParametersInCacheKeyAndForwardedToOrigin;
+  expect(keys.CookiesConfig).toEqual({ CookieBehavior: 'none' });
+  expect(keys.HeadersConfig).toEqual({ HeaderBehavior: 'none' });
+  expect(keys.QueryStringsConfig).toEqual({ QueryStringBehavior: 'none' });
+  const distribution = Object.values(template.findResources('AWS::CloudFront::Distribution', {
+    Properties: { DistributionConfig: Match.objectLike({ Comment: 'traffic dashboard' }) },
+  }))[0] as any;
+  const behavior = distribution.Properties.DistributionConfig.CacheBehaviors.find((b: any) => b.PathPattern === 'health');
+  expect(behavior).toMatchObject({ CachePolicyId: { Ref: id }, AllowedMethods: ['GET', 'HEAD'] });
+  expect(behavior.OriginRequestPolicyId).toBeUndefined();
+});
+
+test('/health reads one stats file and one CloudWatch metric, nothing more', () => {
+  template.hasResourceProperties('AWS::IAM::Policy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({ Action: 'cloudwatch:GetMetricStatistics', Resource: '*' }),
+        Match.objectLike({ Action: 's3:GetObject', Resource: { 'Fn::Join': ['', [Match.objectLike({ 'Fn::GetAtt': Match.anyValue() }), '/stats/7d.json']] } }),
+      ]),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Description: 'traffic dashboard API and Microsoft Entra sign-in',
+    Environment: { Variables: Match.objectLike({ PARTITIONER_FUNCTION: Match.anyValue(), SITE_BUCKET: Match.anyValue() }) },
+  });
+});
+
+test('/docs/health.md is deployed as Markdown', () => {
+  template.hasResourceProperties('Custom::CDKBucketDeployment', {
+    Exclude: ['*'], Include: ['*.md'],
+    SystemMetadata: { 'cache-control': 'no-cache', 'content-type': 'text/markdown; charset=utf-8' },
   });
 });

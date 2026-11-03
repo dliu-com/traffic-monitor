@@ -6,6 +6,7 @@ const { runQuery } = require('./athena');
 const { loadHosting } = require('./hosting');
 const { STATUS_KEY, isRunning, readStatus } = require('./bots');
 const { readRuns, reputationQueries, summarize } = require('./abuse');
+const { runHealth, healthResponse } = require('./health');
 const { BadRequest, PAGE_MAX, botQueries, ipQueries, listQuery, overviewQueries, pageQueries, parseFilters, settings, visitorQueries } = require('./queries');
 
 const SECURITY_HEADERS = {
@@ -46,6 +47,14 @@ function errorPage(statusCode, message, cookies) {
 
 let s3Client;
 let lambdaClient;
+let cloudwatchClient;
+const cloudwatch = () => {
+  if (!cloudwatchClient) {
+    const { CloudWatchClient } = require('@aws-sdk/client-cloudwatch');
+    cloudwatchClient = new CloudWatchClient({});
+  }
+  return cloudwatchClient;
+};
 const s3 = () => {
   if (!s3Client) {
     const { S3Client } = require('@aws-sdk/client-s3');
@@ -96,6 +105,11 @@ function createHandler(deps = {}) {
   return async function handler(event) {
     const method = (event.requestContext && event.requestContext.http && event.requestContext.http.method) || 'GET';
     const path = event.rawPath || '/';
+    // status.dliu.com's health check: answered before anything reads cookies, headers or the query string.
+    if (path === '/health') {
+      if (method !== 'GET' && method !== 'HEAD') return json(405, { error: 'Method not allowed' });
+      return healthResponse(await runHealth({ loadConfig: getConfig, s3: deps.s3 || s3(), cloudwatch: deps.cloudwatch || cloudwatch() }, clock()));
+    }
     const params = event.queryStringParameters || {};
     const siteUrl = process.env.SITE_URL;
     const botRun = path === '/api/bots/run';

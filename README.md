@@ -164,6 +164,7 @@ The dashboard distribution uses every edge location and HTTP/3. What CloudFront 
 | JS, CSS, images (`web/`) | `max-age=0, must-revalidate` | 1 day (`s-maxage=86400`) | `make deploy` (`/*`) |
 | `stats/*.json` (public totals) | 5 minutes (`max-age=300`) | 1 day (`s-maxage=86400`) | automatic clearing (below) |
 | `/api/*`, `/auth/*` | not cached | not cached | — |
+| `/health` | `max-age=60` | 60 s, keyed on nothing | expires on its own |
 | `/t/*` (page script, events) | answered by a CloudFront Function | — | — |
 
 Automatic clearing is on for **`stats/` in the dashboard bucket only**, the one prefix the app rewrites outside a
@@ -181,6 +182,21 @@ Not cleared automatically, and why:
 - Log bucket (`raw/`, `raw-v2/`, `logs/`, `archive/`, `events/`, bot and reputation data): not served by CloudFront,
   and new files are added constantly; a file that was never cached needs no clearing.
 - `/api/*`, `/auth/*` and `/t/*`: never cached.
+
+## Health checks (status.dliu.com)
+
+[status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest, following its health contract:
+
+- [`/docs/health`](https://traffic.dliu.com/docs/health) for people (diagram, plain words, technical details folded) and
+  [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines (`text/markdown`, every detail: functions,
+  guest checks, the `/health` format, what isn't tested). Both are generated from `config/health.json` by
+  `make health-docs` (`scripts/health-docs.js`); the tests fail if they are out of date.
+- `GET /health` (`lambda/dashboard/health.js`), `application/health+json`, 200 for pass/warn and 503 for fail. Its
+  CloudFront behavior forwards no cookies, headers or query string and caches the answer 60 s; the handler answers it
+  before reading any of them. One cheap read per function: `public-stats` (HeadObject `stats/7d.json`), `signin`
+  (the SSM settings read sign-in already does), `logging` (partitioner `Invocations` in the last 3 hours, one
+  CloudWatch metric; `cloudwatch:GetMetricStatistics` has no resource-level permissions, so it is granted on `*`) and
+  `bot-check` (`bots/status.json` plus HeadObject `hosting/asns.json`). No S3 LIST, Athena or AbuseIPDB.
 
 ## Security tests
 

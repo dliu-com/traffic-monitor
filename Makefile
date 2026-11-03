@@ -1,7 +1,7 @@
 AWS_REGION ?= eu-west-1
 STACK_NAME ?= TrafficMonitor
 
-.PHONY: install test synth diff deploy update-hosting update-cities classify-bots public-stats compact-logs set-secrets set-abuseipdb-key outputs
+.PHONY: install test synth diff deploy update-hosting update-cities classify-bots public-stats compact-logs set-secrets set-abuseipdb-key outputs health-docs
 
 install:
 	npm ci
@@ -64,6 +64,10 @@ compact-logs:
 	payload='{$(if $(FROM),"from":"$(FROM)"$(comma)"to":"$(TO)"$(comma))$(if $(UNJUDGED),"unjudged":"agents"$(comma))"dryRun":$(if $(DRY),true,false)}' && \
 	aws lambda invoke --region $(AWS_REGION) --function-name $$fn --cli-read-timeout 900 \
 		--cli-binary-format raw-in-base64-out --payload "$$payload" /dev/stdout --query FunctionError --output text
+
+# Rebuild /docs/health (web/docs-health.html) and /docs/health.md (web/docs-health.md) after editing config/health.json.
+health-docs:
+	node scripts/health-docs.js
 
 set-secrets:
 	AWS_REGION=$(AWS_REGION) scripts/set-secrets.sh

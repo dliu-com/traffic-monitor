@@ -549,6 +549,10 @@ export class TrafficMonitorStack extends Stack {
     botClassifier.grantInvoke(dashboardHandler);
     logBucket.grantPut(dashboardHandler, 'bots/status.json');
     dashboardHandler.addEnvironment('BOTS_FUNCTION', botClassifier.functionName);
+    // /health (lambda/dashboard/health.js) reads how often the partitioner ran: one CloudWatch metric. CloudWatch
+    // has no resource-level permissions for GetMetricStatistics, so the resource is '*'; it is read only.
+    dashboardHandler.addEnvironment('PARTITIONER_FUNCTION', partitioner.functionName);
+    dashboardHandler.addToRolePolicy(new iam.PolicyStatement({ actions: ['cloudwatch:GetMetricStatistics'], resources: ['*'] }));
     // The /abuse-check page reads the AbuseIPDB run history.
     logBucket.grantRead(dashboardHandler, 'abuseipdb/*');
     logBucket.grantRead(dashboardHandler, 'reputation/*');
@@ -625,6 +629,9 @@ export class TrafficMonitorStack extends Stack {
     logBucket.grantRead(publicStats, 'bots/*');
     resultsBucket.grantReadWrite(publicStats);
     siteBucket.grantPut(publicStats, 'stats/*');
+    // /health checks when the 7-day totals were last written (HeadObject of that one file).
+    dashboardHandler.addToRolePolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [siteBucket.arnForObjects('stats/7d.json')] }));
+    dashboardHandler.addEnvironment('SITE_BUCKET', siteBucket.bucketName);
     // Guests see 7, 30 and 90 whole days ending yesterday, refreshed once a day after the bot check (00:30)
     // and the log merge (01:30). Athena is paid per log file read, so a daily refresh costs cents a month.
     new events.Rule(this, 'PublicStatsDaily', {
@@ -672,6 +679,28 @@ export class TrafficMonitorStack extends Stack {
       responseHeadersPolicy: headers,
     };
 
+    // status.dliu.com's /health: no cookies, headers or query string reach the Lambda, and CloudFront keeps the answer
+    // for 60 seconds, so the checks behind it run at most about once a minute however often it is requested.
+    const healthCache = new cloudfront.CachePolicy(this, 'HealthCache', {
+      comment: 'traffic /health: cached 60 s, keyed on nothing',
+      minTtl: Duration.seconds(60),
+      defaultTtl: Duration.seconds(60),
+      maxTtl: Duration.seconds(60),
+      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+      queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
+      enableAcceptEncodingGzip: true,
+      enableAcceptEncodingBrotli: true,
+    });
+    const healthBehavior: cloudfront.BehaviorOptions = {
+      origin: origins.FunctionUrlOrigin.withOriginAccessControl(functionUrl, { readTimeout: Duration.seconds(10) }),
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      cachePolicy: healthCache,
+      responseHeadersPolicy: headers,
+      compress: true,
+    };
+
     const pagesFunction = new cloudfront.Function(this, 'DashboardPagesFunction', {
       comment: 'Serves the dashboard pages (/docs, /bots, /site...); old docs URLs redirect to /docs',
       runtime: cloudfront.FunctionRuntime.JS_2_0,
@@ -702,6 +731,7 @@ export class TrafficMonitorStack extends Stack {
         // POST is used only by /api/bots/run; the Lambda answers 405 to other non-GET calls.
         'api/*': { ...lambdaBehavior, allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL },
         'auth/*': lambdaBehavior,
+        health: healthBehavior,
         // The page script and its beacons (sendBeacon POSTs); the function answers every request itself.
         't/*': {
           origin: siteOrigin,
@@ -755,9 +785,21 @@ export class TrafficMonitorStack extends Stack {
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
-      exclude: ['stats/*', '*.html'],
+      exclude: ['stats/*', '*.html', '*.md'],
       cacheControl: [s3deploy.CacheControl.setPublic(), s3deploy.CacheControl.maxAge(Duration.seconds(0)),
         s3deploy.CacheControl.mustRevalidate(), s3deploy.CacheControl.sMaxAge(Duration.days(1))],
+    });
+
+    // /docs/health.md (web/docs-health.md) for machines, as Markdown; revalidated on every load like the pages.
+    new s3deploy.BucketDeployment(this, 'DashboardMarkdown', {
+      sources: [s3deploy.Source.asset(path.join(ROOT, 'web'))],
+      destinationBucket: siteBucket,
+      distribution,
+      distributionPaths: ['/*'],
+      exclude: ['*'],
+      include: ['*.md'],
+      contentType: 'text/markdown; charset=utf-8',
+      cacheControl: [s3deploy.CacheControl.noCache()],
     });
 
     new route53.ARecord(this, 'DashboardAliasRecord', {
