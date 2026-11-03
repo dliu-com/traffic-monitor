@@ -60,6 +60,8 @@ export const EVENT_FIELDS: Array<[string, string]> = [
   ['log_data', 'viewer-request-log-data'],
 ];
 export const PARAMETER_PREFIX = '/traffic-monitor';
+// Shared by every dliu.com app; owned by the dliu-com/audit stack.
+export const TENANT_PARAMETER = '/dliu/entra-tenant-id';
 export const VISITOR_FUNCTION_NAME = 'dliu-visitor-id';
 export const GEO_POLICY_NAME = 'dliu-traffic-geo';
 
@@ -401,6 +403,7 @@ export class TrafficMonitorStack extends Stack {
         GLUE_EVENTS_TABLE,
         ATHENA_WORKGROUP,
         PARAMETER_PREFIX,
+        TENANT_PARAMETER,
         HOSTING_BUCKET: logBucket.bucketName,
         BOTS_BUCKET: logBucket.bucketName,
       },
@@ -422,7 +425,10 @@ export class TrafficMonitorStack extends Stack {
     dashboardHandler.addToRolePolicy(glueRead);
     dashboardHandler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['ssm:GetParameters'],
-      resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: PARAMETER_PREFIX.slice(1) + '/*' })],
+      resources: [
+        this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: PARAMETER_PREFIX.slice(1) + '/*' }),
+        this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: TENANT_PARAMETER.slice(1) }),
+      ],
     }));
     dashboardHandler.addToRolePolicy(new iam.PolicyStatement({
       actions: ['kms:Decrypt'],

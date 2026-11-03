@@ -73,15 +73,19 @@ Microsoft 365 Business Basic (Entra ID Free) is sufficient. Using an admin accou
 
 1. **App registrations → New registration**: name `Traffic Monitor`, *single tenant*,
    redirect URI platform **Web** = `https://traffic.dliu.com/auth/callback`.
-2. Copy **Application (client) ID** and **Directory (tenant) ID** from *Overview*.
+2. Copy the **Application (client) ID** from *Overview*. The **Directory (tenant) ID** is shared by every dliu.com app:
+   it lives in the SSM parameter `/dliu/entra-tenant-id`, owned by [dliu-com/audit](https://github.com/dliu-com/audit).
 3. **Certificates & secrets → New client secret** — copy the secret **Value** (shown once).
 4. **API permissions**: default `User.Read` → *Grant admin consent*.
 5. **Enterprise applications → Traffic Monitor** → *Assignment required = Yes*, and assign the users who may sign in. Microsoft decides who gets in; note that Entra skips this check for Global Administrators.
-6. Store the settings (prompted interactively, saved to SSM Parameter Store under `/traffic-monitor/`):
+6. Store the client ID and secret (prompted interactively, saved to SSM Parameter Store under `/traffic-monitor/`):
 
    ```bash
    make set-secrets
    ```
+
+   The dashboard Lambda reads `/traffic-monitor/entra-client-id`, `/traffic-monitor/entra-client-secret` and the shared
+   `/dliu/entra-tenant-id` at run time (cached 5 minutes); its role may read only those.
 
 No secrets live in this repository. Besides verifying the Microsoft ID token (signature, tenant, audience, nonce, expiry), the dashboard only checks that the account's email is in the site's domain (`@dliu.com`, from the `MainDomain` export).
 Renew the client secret before it expires and re-run `make set-secrets`.

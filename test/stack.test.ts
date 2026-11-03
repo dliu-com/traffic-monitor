@@ -235,13 +235,16 @@ test('the account cost budget lives in dliu-com/audit, not here', () => {
   template.resourceCountIs('AWS::SNS::Topic', 0);
 });
 
-test('dashboard Lambda can only read its own SSM parameters', () => {
+test('dashboard Lambda can only read its own SSM parameters and the shared tenant ID', () => {
   template.hasResourceProperties('AWS::IAM::Policy', {
     PolicyDocument: {
       Statement: Match.arrayWith([
         Match.objectLike({
           Action: 'ssm:GetParameters',
-          Resource: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':ssm:eu-west-1:123456789012:parameter/traffic-monitor/*']] },
+          Resource: [
+            { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':ssm:eu-west-1:123456789012:parameter/traffic-monitor/*']] },
+            { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, ':ssm:eu-west-1:123456789012:parameter/dliu/entra-tenant-id']] },
+          ],
         }),
       ]),
     },
