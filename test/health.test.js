@@ -169,6 +169,25 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(article.trimEnd().endsWith('<p><a href="/docs/health.md" data-zh="给机器读的技术版本（Markdown）">Technical version for machines (Markdown)</a></p>\n    </article>')).toBe(true);
   });
 
+  test('the Health tab links the Markdown right under its heading', () => {
+    expect(article).toContain('<h2 data-zh="如何测试本网站">How this site is tested</h2>\n      <p class="health-md"><span data-zh="机器可读版本：">Machine-readable version: </span><a href="/docs/health.md">/docs/health.md</a></p>');
+  });
+
+  test('the Health tab draws the Components-style tiers: testers, pages, /health and what it reads, joined by labelled arrows', () => {
+    const figure = article.slice(article.indexOf('<figure class="dg dg-tiers">'), article.indexOf('</figure>', article.indexOf('dg-tiers')));
+    expect(figure).toContain('<figcaption data-zh="本网站如何被测试">How the site is tested</figcaption>');
+    const tones = [...figure.matchAll(/<div class="dg-tier dg-(\w+)"><div class="dg-tier-label"><span class="dg-badge" data-zh="[^"]+">[^<]+<\/span><strong /g)].map((m) => m[1]);
+    expect(tones).toEqual(['untrusted', 'edge', 'app', 'private']);
+    expect(figure.match(/<div class="dg-link"><span class="dg-arrow"><svg[^]*?<\/span><span data-zh="[^"]+">[^<]+<\/span><\/div>/g)).toHaveLength(3);
+    // Icons are the Architecture diagram's, added by docs-health.js; every one must exist in the shared kit.
+    const icons = [...figure.matchAll(/<div class="dg-node" data-icon="(\w+)">/g)].map((m) => m[1]);
+    expect(icons.length).toBeGreaterThanOrEqual(8);
+    const kit = read('web/diagram.js');
+    for (const name of new Set([...article.matchAll(/data-icon="(\w+)"/g)].map((m) => m[1]))) expect(kit).toMatch(new RegExp(`\\n  ${name}: \\['#`));
+    expect(figure).toContain('Mainland China probes');
+    expect(read('web/docs-health.js')).toContain("root.querySelectorAll('[data-icon]')");
+  });
+
   test('the Health tab has no exact technical details: no code, folded blocks, status codes, headers, content types or JSON', () => {
     expect(article).not.toMatch(/<details|<summary|<code|<pre|data-lang=/);
     const text = article.replace(/<[^>]*>/g, ' ');

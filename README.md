@@ -189,10 +189,11 @@ Not cleared automatically, and why:
 
 ## Health checks (status.dliu.com)
 
-[status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest, following its health contract:
+[status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest (and hourly from mainland China through Globalping), following its health contract:
 
-- The **Health** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: big numbers, flows, a
-  plain-words table per function and a checks-per-function chart, naming only which pages and endpoints are tested (no
+- The **Health** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: a link to the Markdown under
+  its heading, big numbers, a tiers diagram in the Architecture tab's style (testers → pages and endpoints → `/health`
+  → what it reads, with the same icons), flows, a plain-words table per function and a checks-per-function chart, naming only which pages and endpoints are tested (no
   status codes, headers, content types or JSON), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines
   (`text/markdown`, every detail: functions, guest checks, the `/health` format, what isn't tested). Both are generated
   from `config/health.json` by `make health-docs` (`scripts/health-docs.js`), which writes the tab into `web/docs.html`

@@ -1,8 +1,8 @@
 {
   "site": "https://traffic.dliu.com",
   "intro": [
-    "status.dliu.com 每 15 分钟以游客身份（不登录）访问一次本网站，分别从爱尔兰、弗吉尼亚和东京出发：打开公开页面，再请网站自己检查存储和定时任务，然后把每项功能记为正常、变慢或故障。",
-    "Every 15 minutes status.dliu.com visits this site as a guest, without signing in, from Ireland, Virginia and Tokyo. It opens the public pages, asks the site to check its own storage and scheduled jobs, then marks each function as working, slow or not working."
+    "status.dliu.com 每 15 分钟以游客身份（不登录）访问一次本网站，分别从爱尔兰、弗吉尼亚和东京出发：打开公开页面，再请网站自己检查存储和定时任务，然后把每项功能记为正常、变慢或故障。它还每小时从中国大陆（通过 Globalping 探针）检查一次首页和 /health。",
+    "Every 15 minutes status.dliu.com visits this site as a guest, without signing in, from Ireland, Virginia and Tokyo. It opens the public pages, asks the site to check its own storage and scheduled jobs, then marks each function as working, slow or not working. It also checks the home page and /health from mainland China every hour, through Globalping probes."
   ],
   "functions": [
     {
@@ -312,5 +312,9 @@
       "东京",
       "Tokyo"
     ]
+  ],
+  "china": [
+    "中国大陆每小时一次",
+    "mainland China hourly"
   ]
 }

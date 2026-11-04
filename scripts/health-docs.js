@@ -66,6 +66,38 @@ function chart(data) {
       </figure>`;
 }
 
+// The Architecture tab's "Components" style: tiers of components joined by labelled arrows. The icons (same names and
+// colours as the Architecture diagrams) are added by web/docs-health.js, since the CSP forbids inline styles.
+const node = (iconName, title, text) => `<div class="dg-node" data-icon="${iconName}"><span class="dg-text">${tr('strong', title)}${tr('small', text)}</span></div>`;
+function tiersHtml(data) {
+  const places = data.places;
+  const rows = [
+    { tone: 'untrusted', badge: ['访客', 'Guest'], label: ['测试者', 'Testers'], nodes: [
+      node('eye', ['status.dliu.com', 'status.dliu.com'], [`每 15 分钟，从${places.map((x) => x[0]).join('、')}`, `Every 15 minutes, from ${places.map((x) => x[1]).join(', ')}`]),
+      node('pin', ['中国大陆探针', 'Mainland China probes'], ['每小时一次，通过 Globalping：首页和 /health', 'Hourly, through Globalping: home page and /health']),
+    ] },
+    { tone: 'edge', badge: ['边缘', 'Edge'], label: ['测试的页面和接口', 'Pages and endpoints tested'], link: ['通过互联网，无需登录', 'over the internet, no sign-in'], nodes: [
+      node('cloudfront', ['traffic.dliu.com', 'traffic.dliu.com'], ['首页、文档和给机器读的版本', 'Home page, docs and the version for machines']),
+      node('chart', ['公开统计', 'Public statistics'], ['/stats/7d.json：访客看到的数字', '/stats/7d.json: the numbers guests see']),
+      node('code', ['页面脚本', 'Page script'], ['/t/s.js：各网站加载的小脚本', '/t/s.js: the small script every site loads']),
+      node('entra', ['Microsoft 登录', 'Microsoft sign-in'], ['/auth/login 转到 Microsoft；/api/me 拒绝游客', '/auth/login goes to Microsoft; /api/me turns guests away']),
+    ] },
+    { tone: 'app', badge: ['应用', 'App'], label: ['/health 和后端', '/health and the backend'], link: ['/health：网站检查自己', '/health: the site checks itself'], nodes: [
+      node('lambda', ['仪表板 Lambda', 'Dashboard Lambda'], ['每个部分只做一次快速读取，从不运行查询', 'One quick read per part; never runs a query']),
+    ] },
+    { tone: 'private', badge: ['私有', 'Private'], label: ['它读取的部分', 'What it reads'], link: ['每部分读一次', 'one quick read each'], nodes: [
+      node('s3', ['网站存储桶', 'Site bucket'], ['公开数字上次算出的时间', 'When the public numbers were last worked out']),
+      node('ssm', ['登录设置', 'Sign-in settings'], ['与登录时相同的读取', 'The same read sign-in does']),
+      node('lambda', ['分区器', 'Partitioner'], ['最近 3 小时是否整理过新日志', 'Filed new logs in the last 3 hours?']),
+      node('bot', ['机器人检查', 'Bot check'], ['上次完成的时间，以及云主机列表有多旧', 'When it last finished, and how old its hosting list is']),
+    ] },
+  ];
+  return `      <figure class="dg dg-tiers">${tr('figcaption', ['本网站如何被测试', 'How the site is tested'])}
+${rows.map((row) => `${row.link ? `        <div class="dg-link">${ARROW}${tr('span', row.link)}</div>\n` : ''}        <div class="dg-tier dg-${row.tone}"><div class="dg-tier-label">${tr('span', row.badge, ' class="dg-badge"')}${tr('strong', row.label)}</div>
+          <div class="dg-tier-nodes">${row.nodes.join('')}</div></div>`).join('\n')}
+      </figure>`;
+}
+
 function buildArticle(data) {
   const total = data.functions.reduce((sum, f) => sum + checkCount(data, f), 0);
   const places = data.places;
@@ -73,6 +105,7 @@ function buildArticle(data) {
   const critical = data.functions.filter((f) => f.critical).map((f) => f.name);
   return `    <article id="health" class="dl-docs" hidden>
       <h2 data-zh="如何测试本网站">How this site is tested</h2>
+      <p class="health-md">${tr('span', ['机器可读版本：', 'Machine-readable version: '])}<a href="/docs/health.md">/docs/health.md</a></p>
       ${tr('p', data.intro, ' class="lead"')}
 
       <div class="dg-stats">
@@ -80,13 +113,15 @@ function buildArticle(data) {
     stat('check', [String(data.functions.length), String(data.functions.length)], ['项功能被测试', 'functions tested']),
     stat('filter', [String(total), String(total)], ['项检查', 'checks']),
     stat('clock', ['15 分钟', '15 min'], ['检查一次', 'between test runs']),
-    stat('pin', [String(places.length), String(places.length)], [`个地点：${places.map((x) => x[0]).join('、')}`, `places: ${places.map((x) => x[1]).join(', ')}`]),
+    stat('pin', [String(places.length + 1), String(places.length + 1)], [`个地点：${places.map((x) => x[0]).join('、')}；${data.china[0]}`, `places: ${places.map((x) => x[1]).join(', ')}; ${data.china[1]}`]),
   ].join('\n        ')}
       </div>
 
+${tiersHtml(data)}
+
       <figure class="dg">${tr('figcaption', ['一次测试怎么进行', 'How a test run goes'])}<div class="dg-flow" role="list">
         ${[
-    step('eye', ['status.dliu.com', 'status.dliu.com'], [`以游客身份，从${places.map((x) => x[0]).join('、')}`, `As a guest, from ${places.map((x) => x[1]).join(', ')}`]),
+    step('eye', ['status.dliu.com', 'status.dliu.com'], [`以游客身份，从${places.map((x) => x[0]).join('、')}；${data.china[0]}`, `As a guest, from ${places.map((x) => x[1]).join(', ')}; ${data.china[1]}`]),
     step('browser', ['打开公开页面', 'Opens the public pages'], ['首页、文档、公开数字、小脚本和“登录”按钮', 'Home page, docs, public numbers, the small script and the Sign in button']),
     step('lambda', ['请网站检查自己', 'Asks the site to check itself'], ['/health 查看存储、登录设置和定时任务', '/health looks at its storage, sign-in settings and scheduled jobs']),
     step('chart', ['记下结果', 'Records the result'], ['每项功能一个结果，显示在 status.dliu.com', 'One result per function, shown on status.dliu.com']),
