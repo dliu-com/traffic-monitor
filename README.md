@@ -292,6 +292,10 @@ that belong to no single app. It covers this app's spend too. It warns; it stops
 - status.dliu.com probes every site as a guest every 15 minutes with the user agent `dliu-status-bot/1.0`. The
   partitioner drops every log line whose (URL-decoded) user agent starts with `dliu-status-bot/`, so the probes never
   reach the Bots page, Athena scans, the bot check or AbuseIPDB; a file holding only probes is not filed at all.
+  status.dliu.com also checks the sites hourly from mainland China through Globalping (jsDelivr's free probe
+  network), whose probes send the fixed user agent `globalping probe (https://github.com/jsdelivr/globalping)`; lines
+  whose user agent starts with `globalping probe` are dropped the same way (this also drops anyone else's Globalping
+  tests, which are synthetic too).
 - Logs are kept for 1 year; a raw (unpartitioned) file left by a failed partitioner run expires after 1 day.
 - Every CloudWatch log group (the app's Lambdas and CDK's helper Lambdas) keeps logs for 90 days.
 - The `dl_vid` cookie is set without a consent banner; consider your local cookie rules (e.g. UK PECR).

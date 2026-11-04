@@ -103,5 +103,5 @@ The `pages` and `page-script` functions have no `/health` entry; the guest check
 
 - The tests are read only and must never change content: `GET` or `HEAD` only.
 - Never send `POST` to `/t/e` (it would be recorded as a visit) or to `/api/`.
-- traffic.dliu.com drops requests whose user agent starts with `dliu-status-bot/` from its logs, so the tests never
-  count as traffic.
+- traffic.dliu.com drops requests whose user agent starts with `dliu-status-bot/` or `globalping probe` (the
+  hourly checks from mainland China through Globalping) from its logs, so the tests never count as traffic.

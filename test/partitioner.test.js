@@ -151,7 +151,7 @@ describe('log partitioner', () => {
     expect(redactLogText(redactLogText(text))).toBe(redactLogText(text));
   });
 
-  test('drops status.dliu.com probe lines, whatever the encoding, and keeps everyone else', () => {
+  test('drops status.dliu.com and Globalping probe lines, whatever the encoding, and keeps everyone else', () => {
     const names = ['date', 'c-ip', 'cs(User-Agent)'];
     const ua = (value) => ['2026-11-03', '203.0.113.9', value].join('\t');
     const text = [
@@ -159,6 +159,9 @@ describe('log partitioner', () => {
       ua('dliu-status-bot/1.0%20(+https://status.dliu.com/docs)'),
       ua('dliu-status-bot%2F1.0%2520(+https://status.dliu.com/docs)'),
       ua('Mozilla/5.0%20(X11)%20dliu-status-bot/1.0'),
+      ua('globalping%20probe%20(https://github.com/jsdelivr/globalping)'),
+      ua('globalping%2520probe%2520(https://github.com/jsdelivr/globalping)'),
+      ua('Mozilla/5.0%20globalping%20probe'),
       ua('Mozilla/5.0%20(Windows%20NT%2010.0)'),
       ua('-'),
       '',
@@ -167,11 +170,14 @@ describe('log partitioner', () => {
     const agentIndex = OUTPUT_FIELDS.indexOf('cs(User-Agent)');
     expect(rows.map((row) => row.split('\t')[agentIndex])).toEqual([
       'Mozilla/5.0%20(X11)%20dliu-status-bot/1.0',
+      'Mozilla/5.0%20globalping%20probe',
       'Mozilla/5.0%20(Windows%20NT%2010.0)',
       '-',
     ]);
     expect(isStatusProbe('dliu-status-bot/1.0')).toBe(true);
     expect(isStatusProbe('dliu-status-botnet/1.0')).toBe(false);
+    expect(isStatusProbe('globalping probe (https://github.com/jsdelivr/globalping)')).toBe(true);
+    expect(isStatusProbe('globalping probes/2.0')).toBe(false);
     expect(isStatusProbe(undefined)).toBe(false);
   });
 

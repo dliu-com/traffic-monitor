@@ -111,9 +111,11 @@ function redactLogText(text) {
   }).join('\n');
 }
 
-// status.dliu.com probes every site as a guest every 15 minutes. Its lines are dropped here, so they never
-// reach the Bots page, Athena scans, the bot check or AbuseIPDB lookups.
-const STATUS_BOT = /^dliu-status-bot\//i;
+// Synthetic probes: status.dliu.com checks every site as a guest every 15 minutes (dliu-status-bot/), and hourly from
+// mainland China through Globalping, whose volunteer probes send a fixed user agent ("globalping probe (…)"); anyone
+// else's Globalping tests are synthetic too. Their lines are dropped here, so they never reach the Bots page, Athena
+// scans, the bot check or AbuseIPDB lookups.
+const STATUS_BOT = /^(?:dliu-status-bot\/|globalping probe\b)/i;
 
 function isStatusProbe(userAgent) {
   return Boolean(userAgent) && STATUS_BOT.test(safeDecode(safeDecode(userAgent)).trim());
