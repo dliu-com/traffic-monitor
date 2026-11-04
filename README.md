@@ -41,7 +41,7 @@ Central traffic monitoring for the `*.dliu.com` sites (S3/Lambda behind CloudFro
 - **Docs** – `https://traffic.dliu.com/docs`, public, one page with tabs like the other dliu.com apps:
   Architecture `#architecture` (diagrams of the architecture and sign-in flow), Bot detection
   `#bot-detection` (the bot rules and checks), Cost `#cost` (the monthly bill and the cost per page load) Security `#security` (threat model, live penetration-test results
-  and accepted risks) and Testing `#health` (how status.dliu.com tests the site, in plain words, numbers, flows and a chart). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
+  and accepted risks) and Health `#health` (how status.dliu.com tests the site, in plain words, numbers, flows and a chart). The old `/about`, `/detect-bot`, `/cost` and `/security` URLs redirect (301) to their tab.
 - **Chinese / English** – every page, the docs and the sign-in error page have the shared 中文 | English switch.
 
 ```
@@ -191,7 +191,7 @@ Not cleared automatically, and why:
 
 [status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest, following its health contract:
 
-- The **Testing** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: big numbers, flows, a
+- The **Health** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: big numbers, flows, a
   plain-words table per function and a checks-per-function chart, naming only which pages and endpoints are tested (no
   status codes, headers, content types or JSON), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines
   (`text/markdown`, every detail: functions, guest checks, the `/health` format, what isn't tested). Both are generated

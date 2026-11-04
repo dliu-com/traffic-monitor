@@ -11,7 +11,7 @@ const DOCS_CSS = '<link rel="stylesheet" href="https://files.dliu.com/dliu.com/u
 const DL_ICON = 'https://files.dliu.com/dliu.com/favicon.png';
 const APP_PAGES = ['index', 'site', 'page', 'visitor', 'ip', 'bots', 'abuse-check'];
 const DOCS_PAGES = ['docs'];
-// health is the Testing tab, written into docs.html by scripts/health-docs.js (its own checks are in health.test.js).
+// health is the Health tab, written into docs.html by scripts/health-docs.js (its own checks are in health.test.js).
 const DOCS_TABS = ['architecture', 'bot-detection', 'cost', 'security', 'health'];
 const ALL_PAGES = [...APP_PAGES, ...DOCS_PAGES];
 // The shared docs tab names (https://files.dliu.com/dliu.com/README.md), in Chinese and English.
@@ -20,7 +20,7 @@ const TAB_NAMES = {
   'bot-detection': ['机器人识别', 'Bot detection'],
   cost: ['成本', 'Cost'],
   security: ['安全', 'Security'],
-  health: ['测试', 'Testing'],
+  health: ['健康', 'Health'],
 };
 
 test('the web folder has exactly these pages', () => {

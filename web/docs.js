@@ -10,7 +10,7 @@ const TITLES = {
   'bot-detection': t('机器人识别', 'Bot detection'),
   cost: t('成本', 'Cost'),
   security: t('安全', 'Security'),
-  health: t('测试', 'Testing'),
+  health: t('健康', 'Health'),
 };
 const TABS = Object.keys(TITLES);
 

@@ -4,7 +4,7 @@
 
 Every 15 minutes status.dliu.com visits this site as a guest, without signing in, from Ireland, Virginia and Tokyo. It opens the public pages, asks the site to check its own storage and scheduled jobs, then marks each function as working, slow or not working.
 
-- Human version: https://traffic.dliu.com/docs#health (the Testing tab)
+- Human version: https://traffic.dliu.com/docs#health (the Health tab)
 - Contract: every dliu.com site follows the health contract of status.dliu.com (https://status.dliu.com/docs).
 
 ## Functions

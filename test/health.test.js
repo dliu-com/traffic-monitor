@@ -1,4 +1,4 @@
-// status.dliu.com's health contract (status/HEALTH.md): /health, the /docs#health Testing tab, the /docs/health redirect
+// status.dliu.com's health contract (status/HEALTH.md): /health, the /docs#health Health tab, the /docs/health redirect
 // and /docs/health.md.
 const fs = require('fs');
 const path = require('path');
@@ -134,7 +134,7 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
   const { article, html, md } = build();
   const healthKeys = source.functions.filter((f) => f.health).map((f) => f.key);
 
-  test('the Testing tab and the Markdown are generated from config/health.json and up to date', () => {
+  test('the Health tab and the Markdown are generated from config/health.json and up to date', () => {
     expect(read('web/docs.html')).toBe(html);
     expect(html).toContain(article);
     expect(fs.existsSync(path.join(ROOT, 'web/docs-health.html'))).toBe(false);
@@ -153,7 +153,7 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     for (const check of source.checks) expect(source.functions.map((f) => f.key)).toContain(check.function);
   });
 
-  test('the Testing tab shows rather than tells: big numbers, flows, a table and a chart', () => {
+  test('the Health tab shows rather than tells: big numbers, flows, a table and a chart', () => {
     expect(article.startsWith('    <article id="health" class="dl-docs" hidden>')).toBe(true);
     expect(article).toContain('<div class="dg-stats">');
     expect(article.match(/<div class="dg-stat" data-icon="/g).length).toBeGreaterThanOrEqual(4);
@@ -169,7 +169,7 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(article.trimEnd().endsWith('<p><a href="/docs/health.md" data-zh="给机器读的技术版本（Markdown）">Technical version for machines (Markdown)</a></p>\n    </article>')).toBe(true);
   });
 
-  test('the Testing tab has no exact technical details: no code, folded blocks, status codes, headers, content types or JSON', () => {
+  test('the Health tab has no exact technical details: no code, folded blocks, status codes, headers, content types or JSON', () => {
     expect(article).not.toMatch(/<details|<summary|<code|<pre|data-lang=/);
     const text = article.replace(/<[^>]*>/g, ' ');
     expect(text).not.toMatch(/https?:\/\//);
@@ -185,11 +185,11 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(text).toContain('/auth/login');
   });
 
-  test('the Testing tab sits next to the other /docs tabs and loads its script', () => {
-    expect(html).toContain('<a href="#security" data-tab="security" data-zh="安全">Security</a>\n      <a href="#health" data-tab="health" data-zh="测试">Testing</a>\n    </nav>');
+  test('the Health tab sits next to the other /docs tabs and loads its script', () => {
+    expect(html).toContain('<a href="#security" data-tab="security" data-zh="安全">Security</a>\n      <a href="#health" data-tab="health" data-zh="健康">Health</a>\n    </nav>');
     expect(html).not.toMatch(/href="\/docs\/health"/);
     expect(read('web/docs.js')).toContain("import './docs-health.js';");
-    expect(read('web/docs.js')).toContain("health: t('测试', 'Testing'),");
+    expect(read('web/docs.js')).toContain("health: t('健康', 'Health'),");
     expect(read('web/docs-health.js')).toContain("document.getElementById('health')");
   });
 

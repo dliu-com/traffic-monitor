@@ -1,4 +1,4 @@
-// The Testing tab (#health) is static HTML that scripts/health-docs.js writes into docs.html; this adds the icons to
+// The Health tab (#health) is static HTML that scripts/health-docs.js writes into docs.html; this adds the icons to
 // its steps and big numbers.
 import { icon } from './diagram.js';
 
