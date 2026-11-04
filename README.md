@@ -191,7 +191,7 @@ Not cleared automatically, and why:
 
 [status.dliu.com](https://status.dliu.com) tests this site every 15 minutes as a guest (and hourly from mainland China through Globalping), following its health contract:
 
-- The **Health** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: a link to the Markdown under
+- The **Health** tab, [`/docs#health`](https://traffic.dliu.com/docs#health), for people: links to the Markdown and to the live status page ([status.dliu.com/site/traffic](https://status.dliu.com/site/traffic)) under
   its heading, big numbers, a tiers diagram in the Architecture tab's style (testers → pages and endpoints → `/health`
   → what it reads, with the same icons), flows, a plain-words table per function and a checks-per-function chart, naming only which pages and endpoints are tested (no
   status codes, headers, content types or JSON), and [`/docs/health.md`](https://traffic.dliu.com/docs/health.md) for machines

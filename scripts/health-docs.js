@@ -105,7 +105,8 @@ function buildArticle(data) {
   const critical = data.functions.filter((f) => f.critical).map((f) => f.name);
   return `    <article id="health" class="dl-docs" hidden>
       <h2 data-zh="如何测试本网站">How this site is tested</h2>
-      <p class="health-md">${tr('span', ['机器可读版本：', 'Machine-readable version: '])}<a href="/docs/health.md">/docs/health.md</a></p>
+      <p class="health-md">${tr('span', ['机器可读版本：', 'Machine-readable version: '])}<a href="/docs/health.md">/docs/health.md</a>
+        · ${tr('span', ['实时状态：', 'Live status: '])}<a href="${esc(data.statusPage)}">${esc(data.statusPage.replace(/^https:\/\//, ''))}</a></p>
       ${tr('p', data.intro, ' class="lead"')}
 
       <div class="dg-stats">
@@ -187,6 +188,7 @@ function buildMd(data) {
 ${en(data.intro)}
 
 - Human version: ${data.site}/docs#health (the Health tab)
+- Live status: ${data.statusPage}
 - Contract: every dliu.com site follows the health contract of status.dliu.com (https://status.dliu.com/docs).
 
 ## Functions

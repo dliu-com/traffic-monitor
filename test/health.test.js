@@ -169,8 +169,11 @@ describe('/docs#health, the /docs/health redirect and /docs/health.md', () => {
     expect(article.trimEnd().endsWith('<p><a href="/docs/health.md" data-zh="给机器读的技术版本（Markdown）">Technical version for machines (Markdown)</a></p>\n    </article>')).toBe(true);
   });
 
-  test('the Health tab links the Markdown right under its heading', () => {
-    expect(article).toContain('<h2 data-zh="如何测试本网站">How this site is tested</h2>\n      <p class="health-md"><span data-zh="机器可读版本：">Machine-readable version: </span><a href="/docs/health.md">/docs/health.md</a></p>');
+  test('the Health tab links the Markdown and the live status page right under its heading', () => {
+    expect(article).toContain('<h2 data-zh="如何测试本网站">How this site is tested</h2>\n      <p class="health-md"><span data-zh="机器可读版本：">Machine-readable version: </span><a href="/docs/health.md">/docs/health.md</a>\n'
+      + '        · <span data-zh="实时状态：">Live status: </span><a href="https://status.dliu.com/site/traffic">status.dliu.com/site/traffic</a></p>');
+    expect(source.statusPage).toBe('https://status.dliu.com/site/traffic');
+    expect(md).toContain('- Live status: https://status.dliu.com/site/traffic\n');
   });
 
   test('the Health tab draws the Components-style tiers: testers, pages, /health and what it reads, joined by labelled arrows', () => {
