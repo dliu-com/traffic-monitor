@@ -126,6 +126,12 @@ test.each(ALL_PAGES)('%s links to /docs, not the old About page', (name) => {
   expect(page).not.toMatch(/href="\/(about|detect-bot|cost|security)"/);
 });
 
+test('the Architecture tab starts with the shared link to the source code', () => {
+  const docs = read('web/docs.html');
+  expect(docs).toContain('<article id="architecture" class="dl-docs">\n      <p class="dl-docs-repo"><span data-zh="源代码：">Source code:</span> <a href="https://github.com/dliu-com/traffic-monitor">github.com/dliu-com/traffic-monitor</a></p>\n      <h2 ');
+  expect(docs).toContain('<link rel="stylesheet" href="https://files.dliu.com/dliu.com/ui/v1/dl-docs.css">');
+});
+
 test('docs.js loads every section and switches tabs by the URL hash', () => {
   const docs = read('web/docs.js');
   for (const tab of DOCS_TABS) {
