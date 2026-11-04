@@ -230,6 +230,9 @@ that belong to no single app. It covers this app's spend too. It warns; it stops
 
 ## Notes
 
+- traffic.dliu.com is deliberately not indexed by search engines: every response carries `X-Robots-Tag: noindex, nofollow`
+  and every page has a robots `noindex` meta tag. It therefore publishes no sitemap (it would only list blocked URLs);
+  `robots.txt` still allows crawling so crawlers can see the noindex (`test/indexing.test.js`).
 - Visitors are identified by the `dl_vid` cookie sent; a request without one uses the ID the function logged if that ID
   later came back as a cookie in the queried period (so cookie-less bots don't count once per request), then `ip:<address>`
   (bots and cookie-blocking browsers). Responses the function does not run on (e.g. some origin errors) use the cookie.

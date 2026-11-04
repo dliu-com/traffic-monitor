@@ -1,4 +1,5 @@
+# traffic.dliu.com is deliberately not indexed: every response carries X-Robots-Tag: noindex, nofollow and every page
+# has a robots noindex meta tag (the dashboard and its docs describe visitor traffic). There is therefore no sitemap.
+# Crawling stays allowed so crawlers can see the noindex.
 User-agent: *
 Allow: /
-
-Sitemap: https://traffic.dliu.com/sitemap.xml
